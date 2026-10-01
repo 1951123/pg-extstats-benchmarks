@@ -1,0 +1,7 @@
+benchmarks:
+  dmv:
+    path: benchmarks/dmv
+    status: placeholder
+  census:
+    path: benchmarks/census
+    status: placeholder

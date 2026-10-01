@@ -1,0 +1,13 @@
+id: dmv
+version: placeholder
+description: DMV benchmark placeholder
+sources:
+  data:
+    manifest: sources/data.yaml
+  workload:
+    manifest: sources/workload.yaml
+pipeline:
+  transform: null
+  load: null
+  validate: null
+  truth: null

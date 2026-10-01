@@ -1,0 +1,13 @@
+id: census
+version: placeholder
+description: CENSUS benchmark placeholder
+sources:
+  data:
+    manifest: sources/data.yaml
+  workload:
+    manifest: sources/workload.yaml
+pipeline:
+  transform: null
+  load: null
+  validate: null
+  truth: null
