@@ -23,6 +23,7 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench list
 .venv/bin/pgextbench verify dmv
 .venv/bin/pgextbench run example --stage prepare
+.venv/bin/pgextbench run example --stage prepare --record
 .venv/bin/python -m pytest
 ```
 
@@ -35,7 +36,9 @@ nonzero exit status.
 
 `run example --stage STAGE` executes only the in-memory toy adapter. Valid
 stages are `fetch`, `prepare`, `load`, `validate`, `normalize_workload`, and
-`collect_truth`; real benchmark adapters are not registered yet.
+`collect_truth`; real benchmark adapters are not registered yet. Adding
+`--record` writes one JSON execution record under the repository-local `runs/`
+directory, including artifact IDs and the repository commit.
 
 ## Definitions and external data
 

@@ -19,17 +19,20 @@ def main(argv=None) -> int:
     run = commands.add_parser("run")
     run.add_argument("benchmark")
     run.add_argument("--stage", required=True)
+    run.add_argument("--record", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.command == "status":
             print(f"Data root: {benchmark_data_root()}")
         elif args.command == "run":
-            result = run_stage(args.benchmark, args.stage)
+            result = run_stage(args.benchmark, args.stage, record=args.record)
             print(f"Benchmark: {result['benchmark_id']}")
             print(f"Adapter: {result['adapter']}")
             print(f"Stage: {result['stage']}")
             print(f"Status: {result['status']}")
             print(f"Message: {result['message']}")
+            if args.record:
+                print(f"Execution record: {result['execution_path']}")
         else:
             registry = load_registry(args.repo)
             if args.command == "list":

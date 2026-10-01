@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import json
 import re
 
+from .artifacts import Artifact as ManagedArtifact
+
 
 @dataclass(frozen=True)
 class Artifact:
@@ -44,26 +46,58 @@ class Artifact:
 
 @dataclass(frozen=True)
 class ArtifactLineage:
-    """A collection of artifacts with parent-reference validation."""
+    """A collection of legacy or managed artifacts with parent validation.
 
-    artifacts: tuple[Artifact, ...]
+    ``ManagedArtifact`` is the Phase 4 model from :mod:`artifacts`. The
+    original positional ``lineage.Artifact`` remains accepted for API
+    compatibility with the contract-v1 lineage format.
+    """
+
+    artifacts: tuple[object, ...]
 
     def __post_init__(self) -> None:
-        ids = [artifact.artifact_id for artifact in self.artifacts]
+        ids = [_artifact_id(artifact) for artifact in self.artifacts]
         if len(ids) != len(set(ids)):
             raise ValueError("artifact IDs must be unique")
         known = set(ids)
         for artifact in self.artifacts:
-            unknown = set(artifact.parent_artifacts) - known
+            unknown = set(_parent_ids(artifact)) - known
             if unknown:
                 raise ValueError(f"unknown parent artifacts: {sorted(unknown)}")
 
     def to_dict(self) -> dict:
-        return {"artifacts": [artifact.to_dict() for artifact in self.artifacts]}
+        return {"artifacts": [_artifact_dict(artifact) for artifact in self.artifacts]}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, indent=2) + "\n"
 
     @classmethod
     def from_dict(cls, value: dict) -> "ArtifactLineage":
-        return cls(tuple(Artifact.from_dict(item) for item in value["artifacts"]))
+        artifacts = []
+        for item in value["artifacts"]:
+            if "id" in item:
+                artifacts.append(ManagedArtifact.from_dict(item))
+            else:
+                artifacts.append(Artifact.from_dict(item))
+        return cls(tuple(artifacts))
+
+
+def _artifact_id(artifact: object) -> str:
+    value = getattr(artifact, "id", None)
+    if value is None:
+        value = getattr(artifact, "artifact_id", None)
+    if not isinstance(value, str) or not value:
+        raise ValueError("lineage entries must expose an artifact ID")
+    return value
+
+
+def _parent_ids(artifact: object) -> tuple[str, ...]:
+    value = getattr(artifact, "parent_artifacts", ())
+    return tuple(value)
+
+
+def _artifact_dict(artifact: object) -> dict:
+    serializer = getattr(artifact, "to_dict", None)
+    if serializer is None:
+        raise TypeError("lineage entries must provide to_dict()")
+    return serializer()
