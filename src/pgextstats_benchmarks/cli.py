@@ -7,7 +7,7 @@ from .paths import benchmark_data_root
 from .registry import load_registry, verify_benchmark
 from .executor import load_artifact, run_stage, validate_instance
 from .instances import LoadedInstance
-from .loader_registry import list_loaders
+from .loader_registry import get_loader, list_loaders
 from .validator_registry import list_validators
 
 
@@ -24,6 +24,7 @@ def main(argv=None) -> int:
     run.add_argument("--stage", required=True)
     run.add_argument("--record", action="store_true")
     commands.add_parser("loaders")
+    commands.add_parser("postgres-check")
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -36,6 +37,31 @@ def main(argv=None) -> int:
         elif args.command == "loaders":
             for loader_id in list_loaders():
                 print(loader_id)
+        elif args.command == "postgres-check":
+            loader = get_loader("postgres")()
+            instance = None
+            destroyed = False
+            try:
+                instance = loader.create_instance("test")
+                version = str(instance.metadata.get("postgres_version", "unknown"))
+                version_parts = version.split()
+                display_version = version_parts[1] if len(version_parts) > 1 else version
+                print(f"PostgreSQL: {display_version}")
+                print(f"Instance: {instance.database_name}")
+                print("Create: PASS")
+                validation = loader.validate_instance(instance)
+                print(f"Validate: {validation['status']}")
+                destruction = loader.destroy_instance(instance)
+                destroyed = destruction["status"] == "PASS"
+                print(f"Destroy: {destruction['status']}")
+                return 0 if validation["status"] == "PASS" and destroyed else 1
+            finally:
+                if instance is not None and not destroyed:
+                    try:
+                        loader.destroy_instance(instance)
+                    except Exception:
+                        pass
+                loader.close()
         elif args.command == "load-example":
             result = load_artifact("example", args.loader)
             print(f"Loader: {result['loader']}")

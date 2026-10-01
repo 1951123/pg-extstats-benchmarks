@@ -48,6 +48,7 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench load-example
 .venv/bin/pgextbench validators
 .venv/bin/pgextbench validate-example
+.venv/bin/pgextbench postgres-check
 .venv/bin/python -m pytest
 ```
 
@@ -70,6 +71,13 @@ materialization.
 
 `validate-example` passes the resulting loaded instance through
 `ExampleValidator`, producing serializable checks and a validation report.
+
+The PostgreSQL lifecycle plugin uses the standard `psycopg` 3 driver, declared
+as the runtime dependency `psycopg[binary]>=3,<4`. `postgres-check` reads
+`PGHOST`, `PGPORT`, and `PGUSER` (defaulting to `localhost`, `55437`, and the
+current OS user), creates and validates a temporary `pgextbench_*` database,
+then drops only that managed database. Passwords are never stored by the
+framework.
 
 ## Definitions and external data
 

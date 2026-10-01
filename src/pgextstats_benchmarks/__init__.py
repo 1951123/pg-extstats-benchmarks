@@ -15,6 +15,7 @@ from .validators import BenchmarkValidator
 from .example_adapter import ExampleAdapter
 from .example_loader import ExampleMemoryLoader
 from .example_validator import ExampleValidator
+from .postgres import PostgresConnection, PostgresInstance, PostgreSQLLoader
 
 __all__ = [
     "__version__",
@@ -28,6 +29,9 @@ __all__ = [
     "ExampleValidator",
     "LoadedInstance",
     "Lineage",
+    "PostgresConnection",
+    "PostgresInstance",
+    "PostgreSQLLoader",
     "ValidationCheck",
     "ValidationReport",
 ]
