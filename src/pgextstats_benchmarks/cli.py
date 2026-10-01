@@ -5,8 +5,10 @@ import sys
 import yaml
 from .paths import benchmark_data_root
 from .registry import load_registry, verify_benchmark
-from .executor import load_artifact, run_stage
+from .executor import load_artifact, run_stage, validate_instance
+from .instances import LoadedInstance
 from .loader_registry import list_loaders
+from .validator_registry import list_validators
 
 
 def main(argv=None) -> int:
@@ -23,6 +25,8 @@ def main(argv=None) -> int:
     run.add_argument("--record", action="store_true")
     commands.add_parser("loaders")
     commands.add_parser("load-example")
+    commands.add_parser("validators")
+    commands.add_parser("validate-example")
     args = parser.parse_args(argv)
     try:
         if args.command == "status":
@@ -35,6 +39,20 @@ def main(argv=None) -> int:
             print(f"Loader: {result['loader']}")
             print(f"Instance: {result['instance']['instance_id']}")
             print(f"Status: {result['instance']['status']}")
+        elif args.command == "validators":
+            for validator_id in list_validators():
+                print(validator_id)
+        elif args.command == "validate-example":
+            loaded = load_artifact("example", "example-memory")
+            instance = LoadedInstance.from_dict(loaded["instance"])
+            result = validate_instance("example", instance, "example-validator")
+            print(f"Validator: {result['validator']}")
+            print(f"Instance: {result['instance']['instance_id']}")
+            print(f"Status: {result['status']}")
+            print("Checks:")
+            for check in result["report"]["checks"]:
+                name = check["name"].replace("instance_status_", "instance_")
+                print(f"  {name} {check['status']}")
         elif args.command == "run":
             result = run_stage(args.benchmark, args.stage, record=args.record)
             print(f"Benchmark: {result['benchmark_id']}")

@@ -5,3 +5,4 @@ __version__ = "0.1.0"
 # is no dynamic adapter discovery.
 from .example_adapter import ExampleAdapter  # noqa: E402,F401
 from .example_loader import ExampleMemoryLoader  # noqa: E402,F401
+from .example_validator import ExampleValidator  # noqa: E402,F401

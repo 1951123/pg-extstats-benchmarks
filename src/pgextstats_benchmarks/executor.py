@@ -13,6 +13,9 @@ from .execution import (
 )
 from .loader_registry import get_loader
 from .registry import load_manifest, load_registry
+from .instances import LoadedInstance
+from .validation import ValidationReport
+from .validator_registry import get_validator
 
 STAGES = (
     "fetch",
@@ -154,4 +157,48 @@ def load_artifact(
         "status": status,
         "message": message,
         "validation": validation,
+    }
+
+
+def validate_instance(
+    benchmark_id: str | None = None,
+    instance: LoadedInstance | None = None,
+    validator: str | None = None,
+    *,
+    benchmark: str | None = None,
+) -> dict:
+    """Validate a loaded instance with a registered benchmark validator."""
+    if benchmark_id is None:
+        benchmark_id = benchmark
+    elif benchmark is not None and benchmark != benchmark_id:
+        raise ValueError("benchmark and benchmark_id must match")
+    if not isinstance(benchmark_id, str) or not benchmark_id:
+        raise ValueError("benchmark_id is required")
+    if not isinstance(instance, LoadedInstance):
+        raise TypeError("instance must be a LoadedInstance")
+    if instance.benchmark_id != benchmark_id:
+        raise ValueError("instance benchmark_id does not match benchmark")
+    if not isinstance(validator, str) or not validator:
+        raise ValueError("validator is required")
+
+    benchmarks = load_registry(_REPO_ROOT)
+    try:
+        definition = benchmarks[benchmark_id]
+    except KeyError as exc:
+        raise ValueError(f"Unknown benchmark: {benchmark_id}") from exc
+    load_manifest(definition)
+
+    validator_class = get_validator(validator)
+    report = validator_class().validate_instance(instance)
+    if not isinstance(report, ValidationReport):
+        raise ValueError(
+            f"Validator {validator_class.__name__}.validate_instance must return a report"
+        )
+    return {
+        "benchmark_id": benchmark_id,
+        "validator": validator_class.__name__,
+        "instance": instance.to_dict(),
+        "report": report.to_dict(),
+        "status": report.status,
+        "message": f"{validator_class.__name__} completed",
     }

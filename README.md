@@ -26,6 +26,8 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench run example --stage prepare --record
 .venv/bin/pgextbench loaders
 .venv/bin/pgextbench load-example
+.venv/bin/pgextbench validators
+.venv/bin/pgextbench validate-example
 .venv/bin/python -m pytest
 ```
 
@@ -45,6 +47,9 @@ directory, including artifact IDs and the repository commit.
 `load-example` runs the DBMS-independent in-memory loader contract over the
 example prepared artifact. It creates no database and performs no SQL or file
 materialization.
+
+`validate-example` passes the resulting loaded instance through
+`ExampleValidator`, producing serializable checks and a validation report.
 
 ## Definitions and external data
 
