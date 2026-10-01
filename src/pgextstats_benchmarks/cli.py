@@ -5,6 +5,7 @@ import sys
 import yaml
 from .paths import benchmark_data_root
 from .registry import load_registry, verify_benchmark
+from .executor import run_stage
 
 
 def main(argv=None) -> int:
@@ -15,10 +16,20 @@ def main(argv=None) -> int:
     commands.add_parser("list")
     verify = commands.add_parser("verify")
     verify.add_argument("benchmark")
+    run = commands.add_parser("run")
+    run.add_argument("benchmark")
+    run.add_argument("--stage", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "status":
             print(f"Data root: {benchmark_data_root()}")
+        elif args.command == "run":
+            result = run_stage(args.benchmark, args.stage)
+            print(f"Benchmark: {result['benchmark_id']}")
+            print(f"Adapter: {result['adapter']}")
+            print(f"Stage: {result['stage']}")
+            print(f"Status: {result['status']}")
+            print(f"Message: {result['message']}")
         else:
             registry = load_registry(args.repo)
             if args.command == "list":

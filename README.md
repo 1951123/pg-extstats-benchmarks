@@ -3,8 +3,9 @@
 Reusable infrastructure for external benchmark ingestion and provenance.
 The planned lifecycle is fetch → immutable raw data → deterministic preparation
 → loading → validation → workload normalization → truth collection.
-Only metadata and registry inspection are implemented today. DMV and Census
-are placeholders; no URLs, transformations, loaders, or cleanup are supplied.
+The framework includes a local toy adapter for exercising lifecycle execution.
+DMV and Census remain placeholders; no URLs, transformations, loaders, or
+cleanup are supplied for them.
 The stable metadata contract is documented in
 [`docs/benchmark-manifest-v1.md`](docs/benchmark-manifest-v1.md), and concrete
 benchmark implementations will conform to the six-stage
@@ -21,6 +22,7 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench status
 .venv/bin/pgextbench list
 .venv/bin/pgextbench verify dmv
+.venv/bin/pgextbench run example --stage prepare
 .venv/bin/python -m pytest
 ```
 
@@ -30,6 +32,10 @@ Use `pgextbench --repo PATH list` for a separate definition checkout.
 raw-data presence. It distinguishes incomplete data from missing configuration
 and never connects to a database. Missing/invalid configuration produces a
 nonzero exit status.
+
+`run example --stage STAGE` executes only the in-memory toy adapter. Valid
+stages are `fetch`, `prepare`, `load`, `validate`, `normalize_workload`, and
+`collect_truth`; real benchmark adapters are not registered yet.
 
 ## Definitions and external data
 

@@ -8,7 +8,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_registry_and_manifests():
     registry = load_registry(REPO)
-    assert set(registry) == {"dmv", "census"}
+    assert set(registry) == {"dmv", "census", "example"}
     for name, benchmark in registry.items():
         assert benchmark.status == "planned"
         assert benchmark.version == "v1"

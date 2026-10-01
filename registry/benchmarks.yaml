@@ -7,3 +7,7 @@ benchmarks:
     path: benchmarks/census
     status: planned
     version: v1
+  example:
+    path: benchmarks/example
+    status: planned
+    version: v1

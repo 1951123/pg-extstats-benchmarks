@@ -1,0 +1,23 @@
+benchmark_id: example
+version: v1
+description: Local toy benchmark for lifecycle execution tests
+sources:
+  data:
+    manifest: sources/data.yaml
+  workload:
+    manifest: sources/workload.yaml
+pipeline:
+  transform: null
+  load: null
+  validate: null
+  truth: null
+artifacts:
+  raw: null
+  prepared: null
+  loaded: null
+provenance:
+  url: null
+  sha256: null
+  timestamp: null
+  generator_commit: null
+  transformation_version: null

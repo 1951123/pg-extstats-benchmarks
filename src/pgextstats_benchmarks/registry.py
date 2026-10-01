@@ -64,8 +64,10 @@ def load_manifest(benchmark: Benchmark) -> dict:
     value = read_mapping(benchmark.path / "benchmark.yaml")
     if value.get("benchmark_id") != benchmark.id:
         raise ValueError("Manifest benchmark_id does not match registry")
-    if not isinstance(value.get("version"), str):
-        raise ValueError("Manifest version must be a string")
+    if not isinstance(value.get("version"), str) or not value["version"]:
+        raise ValueError("Manifest version must be a nonempty string")
+    if value["version"] != benchmark.version:
+        raise ValueError("Manifest version does not match registry")
     if not isinstance(value.get("description"), str) or not value["description"].strip():
         raise ValueError("Manifest description must be a nonempty string")
     sources = value.get("sources")

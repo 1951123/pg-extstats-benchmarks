@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pg-extstats-benchmarks"
 version = "0.1.0"
-description = "External benchmark ETL infrastructure skeleton"
+description = "External benchmark ETL and lifecycle execution infrastructure"
 requires-python = ">=3.12"
 dependencies = ["PyYAML>=6,<7"]
 
