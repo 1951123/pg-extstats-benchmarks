@@ -22,3 +22,8 @@ def test_cli_validator_commands(capsys):
     assert "Status: PASS" in output
     assert "instance_exists PASS" in output
     assert "instance_ready PASS" in output
+
+
+def test_cli_invalid_validator_is_nonzero(capsys):
+    assert main(["validate-example", "--validator", "missing-validator"]) == 1
+    assert "No validator registered" in capsys.readouterr().err

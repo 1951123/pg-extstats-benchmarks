@@ -45,7 +45,3 @@ class LoadedInstance:
             status=value["status"],
             metadata=value.get("metadata", {}),
         )
-
-
-# Short spelling for callers that prefer the domain term.
-Instance = LoadedInstance

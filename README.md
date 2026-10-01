@@ -10,6 +10,26 @@ The stable metadata contract is documented in
 [`docs/benchmark-manifest-v1.md`](docs/benchmark-manifest-v1.md), and concrete
 benchmark implementations will conform to the six-stage
 `BenchmarkAdapter` lifecycle in `src/pgextstats_benchmarks/adapter.py`.
+The package dependency direction and extension points are documented in
+[`docs/architecture.md`](docs/architecture.md).
+
+## Current lifecycle
+
+```text
+benchmark manifest
+        -> adapter
+        -> artifact
+        -> loader
+        -> loaded instance
+        -> validator
+        -> validation report
+```
+
+The framework currently demonstrates this lifecycle with the in-memory
+`example` benchmark. To add a benchmark, implement and explicitly register a
+`BenchmarkAdapter`; to add materialization behavior, register a
+`DatabaseLoader`; to add correctness checks, register a `BenchmarkValidator`.
+Core models remain DBMS-independent.
 
 ## Development
 

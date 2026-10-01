@@ -24,9 +24,11 @@ def main(argv=None) -> int:
     run.add_argument("--stage", required=True)
     run.add_argument("--record", action="store_true")
     commands.add_parser("loaders")
-    commands.add_parser("load-example")
+    load_example = commands.add_parser("load-example")
+    load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
-    commands.add_parser("validate-example")
+    validate_example = commands.add_parser("validate-example")
+    validate_example.add_argument("--validator", default="example-validator")
     args = parser.parse_args(argv)
     try:
         if args.command == "status":
@@ -35,7 +37,7 @@ def main(argv=None) -> int:
             for loader_id in list_loaders():
                 print(loader_id)
         elif args.command == "load-example":
-            result = load_artifact("example", "example-memory")
+            result = load_artifact("example", args.loader)
             print(f"Loader: {result['loader']}")
             print(f"Instance: {result['instance']['instance_id']}")
             print(f"Status: {result['instance']['status']}")
@@ -45,7 +47,7 @@ def main(argv=None) -> int:
         elif args.command == "validate-example":
             loaded = load_artifact("example", "example-memory")
             instance = LoadedInstance.from_dict(loaded["instance"])
-            result = validate_instance("example", instance, "example-validator")
+            result = validate_instance("example", instance, args.validator)
             print(f"Validator: {result['validator']}")
             print(f"Instance: {result['instance']['instance_id']}")
             print(f"Status: {result['status']}")

@@ -19,3 +19,8 @@ def test_cli_loader_listing_and_example(capsys):
     assert "Loader: ExampleMemoryLoader" in output
     assert "Instance: example-memory-v1" in output
     assert "Status: READY" in output
+
+
+def test_cli_invalid_loader_is_nonzero(capsys):
+    assert main(["load-example", "--loader", "missing-loader"]) == 1
+    assert "No loader registered" in capsys.readouterr().err
