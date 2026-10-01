@@ -1,5 +1,5 @@
-id: dmv
-version: placeholder
+benchmark_id: dmv
+version: v1
 description: DMV benchmark placeholder
 sources:
   data:
@@ -11,3 +11,13 @@ pipeline:
   load: null
   validate: null
   truth: null
+artifacts:
+  raw: null
+  prepared: null
+  loaded: null
+provenance:
+  url: null
+  sha256: null
+  timestamp: null
+  generator_commit: null
+  transformation_version: null

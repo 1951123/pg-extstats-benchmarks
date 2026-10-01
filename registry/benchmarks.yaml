@@ -1,7 +1,9 @@
 benchmarks:
   dmv:
     path: benchmarks/dmv
-    status: placeholder
+    status: planned
+    version: v1
   census:
     path: benchmarks/census
-    status: placeholder
+    status: planned
+    version: v1

@@ -1,4 +1,6 @@
 kind: workload
 status: placeholder
-url: null
+source_url: null
+raw_artifact: null
 sha256: null
+timestamp: null

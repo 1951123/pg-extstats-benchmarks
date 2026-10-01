@@ -1,5 +1,5 @@
-id: census
-version: placeholder
+benchmark_id: census
+version: v1
 description: CENSUS benchmark placeholder
 sources:
   data:
@@ -11,3 +11,13 @@ pipeline:
   load: null
   validate: null
   truth: null
+artifacts:
+  raw: null
+  prepared: null
+  loaded: null
+provenance:
+  url: null
+  sha256: null
+  timestamp: null
+  generator_commit: null
+  transformation_version: null

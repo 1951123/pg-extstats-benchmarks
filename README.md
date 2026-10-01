@@ -5,6 +5,10 @@ The planned lifecycle is fetch → immutable raw data → deterministic preparat
 → loading → validation → workload normalization → truth collection.
 Only metadata and registry inspection are implemented today. DMV and Census
 are placeholders; no URLs, transformations, loaders, or cleanup are supplied.
+The stable metadata contract is documented in
+[`docs/benchmark-manifest-v1.md`](docs/benchmark-manifest-v1.md), and concrete
+benchmark implementations will conform to the six-stage
+`BenchmarkAdapter` lifecycle in `src/pgextstats_benchmarks/adapter.py`.
 
 ## Development
 
@@ -22,9 +26,10 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 
 Registry commands default to this checkout when installed in editable mode.
 Use `pgextbench --repo PATH list` for a separate definition checkout.
-`verify` checks the registered benchmark manifest exists; it does not certify
-benchmark readiness or connect to a database. Missing/invalid configuration
-produces a nonzero exit status.
+`verify` reports the definition directory, manifest, source declarations, and
+raw-data presence. It distinguishes incomplete data from missing configuration
+and never connects to a database. Missing/invalid configuration produces a
+nonzero exit status.
 
 ## Definitions and external data
 

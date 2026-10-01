@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import yaml
 from .paths import benchmark_data_root
-from .registry import load_registry
+from .registry import load_registry, verify_benchmark
 
 
 def main(argv=None) -> int:
@@ -23,14 +23,20 @@ def main(argv=None) -> int:
             registry = load_registry(args.repo)
             if args.command == "list":
                 for benchmark in registry.values():
-                    print(f"{benchmark.id}\t{benchmark.status}")
+                    print(f"{benchmark.id}\t{benchmark.version}\t{benchmark.status}")
             else:
-                if args.benchmark not in registry:
-                    raise ValueError(f"Unknown benchmark: {args.benchmark}")
-                path = registry[args.benchmark].path / "benchmark.yaml"
-                if not path.is_file():
-                    raise ValueError(f"Missing benchmark manifest: {path}")
-                print(f"Manifest exists: {args.benchmark} (existence check only)")
+                result = verify_benchmark(args.repo, args.benchmark)
+                print(f"Benchmark: {result.benchmark.id}")
+                print(f"Directory: {'PASS' if result.directory_exists else 'FAIL'}")
+                print(f"Manifest: {'PASS' if result.manifest_exists else 'FAIL'}")
+                print(
+                    "Source declaration: "
+                    f"{'PASS' if result.source_manifest_exists else 'FAIL'}"
+                )
+                print(f"Raw data: {'PRESENT' if result.raw_data_present else 'NOT PRESENT'}")
+                print(f"Status: {result.status}")
+                if result.configuration_missing:
+                    return 1
     except (ValueError, OSError, yaml.YAMLError) as exc:
         print(f"pgextbench: {exc}", file=sys.stderr)
         return 1
