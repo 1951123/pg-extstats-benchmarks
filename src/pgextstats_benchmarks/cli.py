@@ -5,7 +5,8 @@ import sys
 import yaml
 from .paths import benchmark_data_root
 from .registry import load_registry, verify_benchmark
-from .executor import run_stage
+from .executor import load_artifact, run_stage
+from .loader_registry import list_loaders
 
 
 def main(argv=None) -> int:
@@ -20,10 +21,20 @@ def main(argv=None) -> int:
     run.add_argument("benchmark")
     run.add_argument("--stage", required=True)
     run.add_argument("--record", action="store_true")
+    commands.add_parser("loaders")
+    commands.add_parser("load-example")
     args = parser.parse_args(argv)
     try:
         if args.command == "status":
             print(f"Data root: {benchmark_data_root()}")
+        elif args.command == "loaders":
+            for loader_id in list_loaders():
+                print(loader_id)
+        elif args.command == "load-example":
+            result = load_artifact("example", "example-memory")
+            print(f"Loader: {result['loader']}")
+            print(f"Instance: {result['instance']['instance_id']}")
+            print(f"Status: {result['instance']['status']}")
         elif args.command == "run":
             result = run_stage(args.benchmark, args.stage, record=args.record)
             print(f"Benchmark: {result['benchmark_id']}")

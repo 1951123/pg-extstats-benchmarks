@@ -24,6 +24,8 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench verify dmv
 .venv/bin/pgextbench run example --stage prepare
 .venv/bin/pgextbench run example --stage prepare --record
+.venv/bin/pgextbench loaders
+.venv/bin/pgextbench load-example
 .venv/bin/python -m pytest
 ```
 
@@ -39,6 +41,10 @@ stages are `fetch`, `prepare`, `load`, `validate`, `normalize_workload`, and
 `collect_truth`; real benchmark adapters are not registered yet. Adding
 `--record` writes one JSON execution record under the repository-local `runs/`
 directory, including artifact IDs and the repository commit.
+
+`load-example` runs the DBMS-independent in-memory loader contract over the
+example prepared artifact. It creates no database and performs no SQL or file
+materialization.
 
 ## Definitions and external data
 
