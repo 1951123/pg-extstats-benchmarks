@@ -9,6 +9,10 @@ from .executor import load_artifact, run_stage, validate_instance
 from .instances import LoadedInstance
 from .loader_registry import get_loader, list_loaders
 from .validator_registry import list_validators
+from .census_adapter import CensusAdapter
+from .census_validator import CensusValidator
+from .execution import ExecutionRecord, new_execution_id, repository_commit, write_execution_record
+from datetime import datetime, timezone
 
 
 def main(argv=None) -> int:
@@ -27,6 +31,7 @@ def main(argv=None) -> int:
     commands.add_parser("loaders")
     commands.add_parser("postgres-check")
     commands.add_parser("load-example-postgres")
+    commands.add_parser("load-census-postgres")
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -77,6 +82,63 @@ def main(argv=None) -> int:
             print(f"Rows: {instance_metadata.get('rows_loaded', 0)}")
             print(f"Cleanup: {result['cleanup']['status']}")
             return 0 if result["status"] == "PASS" else 1
+        elif args.command == "load-census-postgres":
+            adapter = CensusAdapter()
+            prepared_result = adapter.prepare()
+            prepared = prepared_result["output_artifacts"][0]
+            raw = prepared_result["input_artifacts"][0]
+            workload = adapter.normalize_workload()["output_artifacts"][0]
+            loader = get_loader("postgres")()
+            instance = None
+            destroyed = False
+            try:
+                instance = loader.create_instance("census")
+                loaded = loader.load_artifact(instance, prepared)
+                report = CensusValidator().validate_loaded_instance(
+                    loaded,
+                    loader,
+                    raw_artifact=raw,
+                    prepared_artifact=prepared,
+                    workload_artifact=workload,
+                )
+                cleanup = loader.destroy_instance(loaded)
+                destroyed = cleanup["status"] == "PASS"
+                execution = ExecutionRecord(
+                    execution_id=new_execution_id(),
+                    benchmark_id="census",
+                    stage="load",
+                    status="PASS" if report.status == "PASS" and destroyed else "FAIL",
+                    repository_commit=repository_commit(Path(__file__).resolve().parents[2]),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    input_artifacts=(raw.id, prepared.id, workload.id),
+                    output_artifacts=(),
+                    message="Census PostgreSQL artifact loading completed",
+                    metadata={
+                        "artifact_id": prepared.id,
+                        "postgres_version": loaded.metadata.get("postgres_version"),
+                        "loader_type": loader.__class__.__name__,
+                        "instance_metadata": dict(loaded.metadata),
+                    },
+                )
+                write_execution_record(execution, Path(__file__).resolve().parents[2])
+                version = str(loaded.metadata.get("postgres_version", "unknown"))
+                version_parts = version.split()
+                display_version = version_parts[1] if len(version_parts) > 1 else version
+                print("Benchmark: census")
+                print(f"PostgreSQL: {display_version}")
+                print(f"Artifact: {prepared.id}")
+                print("Load: PASS")
+                print(f"Validation: {report.status}")
+                print(f"Rows: {loaded.metadata.get('rows_loaded', 0)}")
+                print(f"Cleanup: {cleanup['status']}")
+                return 0 if report.status == "PASS" and destroyed else 1
+            finally:
+                if instance is not None and not destroyed:
+                    try:
+                        loader.destroy_instance(instance)
+                    except Exception:
+                        pass
+                loader.close()
         elif args.command == "load-example":
             result = load_artifact("example", args.loader)
             print(f"Loader: {result['loader']}")

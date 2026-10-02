@@ -17,6 +17,8 @@ from pgextstats_benchmarks.validator_registry import get_validator, list_validat
 from pgextstats_benchmarks.adapters import get_adapter, list_adapters
 from pgextstats_benchmarks.executor import run_stage
 from pgextstats_benchmarks.cli import main
+from pgextstats_benchmarks.postgres.loader import PostgreSQLLoader
+from pgextstats_benchmarks.validation import ValidationCheck, ValidationReport
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -50,6 +52,34 @@ def make_adapter(tmp_path: Path) -> tuple[CensusAdapter, bytes, bytes]:
         source_declarations=sources,
     )
     return adapter, dataset, workload
+
+
+def make_loader_adapter(tmp_path: Path) -> tuple[CensusAdapter, dict[str, dict[str, str]]]:
+    columns = [
+        line.strip().split()[0].strip('"').rstrip(",")
+        for line in (REPO / "benchmarks/census/schema/schema.sql").read_text().splitlines()
+        if line.strip().startswith('"')
+    ]
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "USCensus1990.data.txt",
+            ",".join(columns) + "\r\n" + ",".join(["1"] * len(columns)) + "\r\n",
+        )
+    dataset = stream.getvalue()
+    workload = b"select 1;\n"
+    digest = lambda data: hashlib.sha256(data).hexdigest()
+    sources = {
+        "data": {"source_url": "fixture://census-loader.zip", "sha256": digest(dataset)},
+        "workload": {"raw_url": "fixture://census-loader.sql", "sha256": digest(workload)},
+    }
+    adapter = CensusAdapter(
+        repo_root=REPO,
+        data_root=tmp_path / "external",
+        downloader=lambda url: dataset if url.endswith(".zip") else workload,
+        source_declarations=sources,
+    )
+    return adapter, sources
 
 
 def test_census_manifest_and_registration():
@@ -95,6 +125,19 @@ def test_fetch_prepare_and_normalize_create_external_artifacts(tmp_path):
     assert json.loads((workload_artifact.path / "manifest.json").read_text())["size"] == len(workload)
 
 
+def test_census_schema_and_prepared_metadata(tmp_path):
+    schema = (REPO / "benchmarks/census/schema/schema.sql").read_text(encoding="utf-8")
+    assert 'CREATE TABLE census' in schema
+    adapter, _ = make_loader_adapter(tmp_path)
+    adapter.fetch()
+    prepared = adapter.prepare()["output_artifacts"][0]
+    assert prepared.metadata["table"] == "census"
+    assert prepared.metadata["expected_rows"] == 1
+    assert len(prepared.metadata["columns"]) == 69
+    assert prepared.metadata["data_path"] == "USCensus1990.data.txt"
+    assert (prepared.path / "schema.sql").is_file()
+
+
 def test_fetch_rejects_checksum_mismatch(tmp_path):
     adapter, _, _ = make_adapter(tmp_path)
     adapter._downloader = lambda url: b"wrong"
@@ -131,6 +174,78 @@ def test_census_validator_checks_artifacts(tmp_path):
         },
     )
     assert CensusValidator(source_declarations=adapter._provided_sources).validate_instance(instance).status == "PASS"
+
+
+def _integration_loader():
+    try:
+        loader = PostgreSQLLoader()
+        loader.connection.connect()
+    except Exception as exc:  # pragma: no cover - depends on external service
+        pytest.skip(f"PostgreSQL integration unavailable: {exc}")
+    loader.connection.close()
+    return loader
+
+
+def test_census_postgres_loading_and_validation_integration(tmp_path):
+    adapter, sources = make_loader_adapter(tmp_path)
+    adapter.fetch()
+    prepared_result = adapter.prepare()
+    prepared = prepared_result["output_artifacts"][0]
+    raw = prepared_result["input_artifacts"][0]
+    workload = adapter.normalize_workload()["output_artifacts"][0]
+    loader = _integration_loader()
+    instance = loader.create_instance("census")
+    try:
+        loaded = loader.load_artifact(instance, prepared)
+        assert loaded.metadata["rows_loaded"] == 1
+        db_result = loader.validate_instance(loaded)
+        assert db_result["status"] == "PASS"
+        assert {check["name"] for check in db_result["checks"]} >= {
+            "table_exists",
+            "row_count",
+            "expected_columns",
+        }
+        report = CensusValidator(source_declarations=sources).validate_loaded_instance(
+            loaded,
+            loader,
+            raw_artifact=raw,
+            prepared_artifact=prepared,
+            workload_artifact=workload,
+        )
+        assert report.status == "PASS"
+    finally:
+        assert loader.destroy_instance(instance)["status"] == "PASS"
+        loader.close()
+
+
+def test_census_cli_output_with_injected_lifecycle(tmp_path, monkeypatch, capsys):
+    adapter, _ = make_loader_adapter(tmp_path)
+    adapter.fetch()
+    prepared_result = adapter.prepare()
+    workload_result = adapter.normalize_workload()
+    monkeypatch.setenv("PGEXTADV_BENCHMARK_DATA", str(tmp_path / "external"))
+    monkeypatch.setattr(CensusAdapter, "prepare", lambda self: prepared_result)
+    monkeypatch.setattr(CensusAdapter, "normalize_workload", lambda self: workload_result)
+    monkeypatch.setattr(
+        CensusValidator,
+        "validate_loaded_instance",
+        lambda self, instance, loader, **kwargs: ValidationReport(
+            benchmark_id="census",
+            instance_id=instance.instance_id,
+            status="PASS",
+            checks=(ValidationCheck("database", "PASS"),),
+        ),
+    )
+    loader = _integration_loader()
+    loader.close()
+    assert main(["load-census-postgres"]) == 0
+    output = capsys.readouterr().out
+    assert "Benchmark: census" in output
+    assert "Artifact: census-prepared-v1" in output
+    assert "Load: PASS" in output
+    assert "Validation: PASS" in output
+    assert "Rows: 1" in output
+    assert "Cleanup: PASS" in output
 
 
 def test_cli_census_run_with_recorded_fixture(tmp_path, monkeypatch, capsys):

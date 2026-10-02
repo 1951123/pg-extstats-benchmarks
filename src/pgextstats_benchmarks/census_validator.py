@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
+from dataclasses import replace
 
 from .artifacts import Artifact
 from .instances import LoadedInstance
@@ -131,27 +132,74 @@ class CensusValidator(BenchmarkValidator):
             metadata={"validator": self.__class__.__name__, "scope": "source-artifacts"},
         )
 
+    @staticmethod
+    def _database_checks(result: Mapping[str, Any]) -> tuple[ValidationCheck, ...]:
+        checks = []
+        for value in result.get("checks", ()):
+            if isinstance(value, Mapping) and isinstance(value.get("name"), str):
+                checks.append(ValidationCheck.from_dict(value))
+        return tuple(checks)
+
+    def validate_loaded_instance(
+        self,
+        instance: Any,
+        loader: Any,
+        *,
+        raw_artifact: Artifact | Mapping[str, Any],
+        prepared_artifact: Artifact | Mapping[str, Any],
+        workload_artifact: Artifact | Mapping[str, Any],
+    ) -> ValidationReport:
+        """Combine source-artifact checks with the PostgreSQL loader report."""
+        database_result = loader.validate_instance(instance)
+        if not isinstance(database_result, Mapping):
+            raise TypeError("loader validation must return a mapping")
+        metadata = dict(getattr(instance, "metadata", {}))
+        metadata["raw_artifact"] = raw_artifact.to_dict() if isinstance(raw_artifact, Artifact) else dict(raw_artifact)
+        metadata["prepared_artifact"] = prepared_artifact.to_dict() if isinstance(prepared_artifact, Artifact) else dict(prepared_artifact)
+        metadata["workload_artifact"] = workload_artifact.to_dict() if isinstance(workload_artifact, Artifact) else dict(workload_artifact)
+        metadata["database_validation"] = dict(database_result)
+        checked_instance = replace(instance, metadata=metadata)
+        return self.validate_instance(checked_instance)
+
     def validate_instance(self, instance: LoadedInstance) -> ValidationReport:
-        if not isinstance(instance, LoadedInstance):
-            raise TypeError("instance must be a LoadedInstance")
+        if not isinstance(instance, LoadedInstance) and not all(
+            hasattr(instance, name) for name in ("instance_id", "metadata")
+        ):
+            raise TypeError("instance must provide instance_id, benchmark_id, and metadata")
         metadata = instance.metadata
+        benchmark_id = getattr(instance, "benchmark_id", metadata.get("benchmark_id", "census"))
         try:
             raw = metadata["raw_artifact"]
             prepared = metadata["prepared_artifact"]
             workload = metadata["workload_artifact"]
         except KeyError as exc:
             return ValidationReport(
-                benchmark_id=instance.benchmark_id,
+                benchmark_id=benchmark_id,
                 instance_id=instance.instance_id,
                 status="FAIL",
                 checks=(ValidationCheck("artifact_metadata", "FAIL", message=f"missing {exc.args[0]}"),),
                 metadata={"validator": self.__class__.__name__},
             )
-        return self.validate_artifacts(
+        report = self.validate_artifacts(
             raw_artifact=raw,
             prepared_artifact=prepared,
             workload_artifact=workload,
             instance_id=instance.instance_id,
+        )
+        database_result = metadata.get("database_validation")
+        if not isinstance(database_result, Mapping):
+            return report
+        database_checks = self._database_checks(database_result)
+        checks = tuple(report.checks) + database_checks
+        status = "PASS" if all(check.status == "PASS" for check in checks) else "FAIL"
+        report_metadata = dict(report.metadata)
+        report_metadata["database_validation"] = dict(database_result)
+        return ValidationReport(
+            benchmark_id=report.benchmark_id,
+            instance_id=report.instance_id,
+            status=status,
+            checks=checks,
+            metadata=report_metadata,
         )
 
 

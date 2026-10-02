@@ -15,6 +15,7 @@ artifacts:
   raw: census-raw-v1
   prepared: census-prepared-v1
   workload: census-workload-v1
+  schema: census-schema-v1
   loaded: null
 provenance:
   url: null

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import csv
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -121,6 +122,39 @@ class CensusAdapter(BenchmarkAdapter):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
 
+    @staticmethod
+    def _data_member(prepared_dir: Path, members: list[dict[str, Any]]) -> tuple[str, list[str], int]:
+        """Identify the transformed Census CSV and inspect its header/row count."""
+        names = [member["name"] for member in members if not member["directory"]]
+        preferred = next(
+            (name for name in names if Path(name).name == "USCensus1990.data.txt"),
+            None,
+        )
+        candidate = preferred or next(
+            (name for name in names if Path(name).suffix.lower() == ".csv"),
+            None,
+        )
+        if candidate is None:
+            for name in names:
+                path = prepared_dir / name
+                with path.open("r", encoding="utf-8", newline="") as stream:
+                    first = stream.readline()
+                if "," in first and not first.lstrip().startswith(("<", "<!")):
+                    candidate = name
+                    break
+        if candidate is None:
+            raise ValueError("Census archive has no detectable delimited data file")
+        data_path = prepared_dir / candidate
+        with data_path.open("r", encoding="utf-8", newline="") as stream:
+            header = next(csv.reader([stream.readline()]), [])
+        if not header or any(not isinstance(column, str) or not column for column in header):
+            raise ValueError(f"Census data header is invalid: {candidate}")
+        with data_path.open("rb") as stream:
+            rows = sum(chunk.count(b"\n") for chunk in iter(lambda: stream.read(1024 * 1024), b""))
+        if rows < 1:
+            raise ValueError(f"Census data file has no header: {candidate}")
+        return candidate, header, rows - 1
+
     def fetch(self) -> dict[str, Any]:
         """Download the declared archive and workload, verifying both digests."""
         dataset_url, dataset_sha = self._source("data")
@@ -194,6 +228,11 @@ class CensusAdapter(BenchmarkAdapter):
                     }
                 )
 
+        data_path, columns, expected_rows = self._data_member(prepared_dir, members)
+        schema_source = self.repo_root / "benchmarks" / "census" / "schema" / "schema.sql"
+        if not schema_source.is_file():
+            raise FileNotFoundError(f"Census schema artifact is missing: {schema_source}")
+        (prepared_dir / "schema.sql").write_bytes(schema_source.read_bytes())
         timestamp = self._timestamp()
         self._write_json(
             self._artifact_manifest(prepared_dir),
@@ -206,6 +245,16 @@ class CensusAdapter(BenchmarkAdapter):
                 "size": raw_manifest["size"],
                 "timestamp": timestamp,
                 "archive_members": members,
+                "schema_artifact_id": "census-schema-v1",
+                "schema_path": "schema.sql",
+                "data_path": data_path,
+                "table": "census",
+                "columns": columns,
+                "expected_rows": expected_rows,
+                "format": "csv",
+                "delimiter": ",",
+                "header": True,
+                "encoding": "utf-8",
             },
         )
         artifact = self._artifact_from_manifest(prepared_dir)

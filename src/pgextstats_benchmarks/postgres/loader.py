@@ -104,8 +104,28 @@ class PostgreSQLLoader(DatabaseLoader):
             raise TypeError("instance must be a PostgresInstance")
         if not isinstance(artifact, Artifact):
             raise TypeError("artifact must be an Artifact")
+        if artifact.type == "schema":
+            if artifact.path is None:
+                raise ValueError("schema artifact must declare a directory path")
+            root = Path(artifact.path).expanduser().resolve()
+            schema_path = _artifact_file(
+                root, artifact.metadata.get("schema_path", "schema.sql"), "schema"
+            )
+            assert self.connection is not None
+            target = self.connection.for_database(instance.database_name)
+            try:
+                target.connect()
+                target.execute_script(schema_path.read_text(encoding="utf-8"))
+            finally:
+                target.close()
+            metadata = dict(instance.metadata)
+            schema_ids = list(metadata.get("schema_artifact_ids", ()))
+            if artifact.id not in schema_ids:
+                schema_ids.append(artifact.id)
+            metadata["schema_artifact_ids"] = schema_ids
+            return replace(instance, status="SCHEMA_LOADED", metadata=metadata)
         if artifact.type != "prepared_dataset":
-            raise ValueError("PostgreSQLLoader requires a prepared_dataset artifact")
+            raise ValueError("PostgreSQLLoader requires a prepared_dataset or schema artifact")
         if artifact.path is None:
             raise ValueError("prepared artifact must declare a directory path")
         root = Path(artifact.path).expanduser().resolve()
@@ -123,21 +143,35 @@ class PostgreSQLLoader(DatabaseLoader):
         if not all(isinstance(column, str) and column for column in columns):
             raise ValueError("prepared artifact columns must be nonempty strings")
 
-        with data_path.open(newline="", encoding="utf-8") as stream:
-            reader = csv.DictReader(stream)
-            if reader.fieldnames != list(columns):
+        data_format = artifact.metadata.get("format", "csv")
+        if data_format != "csv":
+            raise ValueError(f"unsupported prepared artifact format: {data_format!r}")
+        delimiter = artifact.metadata.get("delimiter", ",")
+        header = artifact.metadata.get("header", True)
+        encoding = artifact.metadata.get("encoding", "utf-8")
+        if not isinstance(delimiter, str) or len(delimiter) != 1:
+            raise ValueError("prepared artifact delimiter must be one character")
+        if not isinstance(header, bool):
+            raise ValueError("prepared artifact header must be boolean")
+        if not isinstance(encoding, str) or not encoding:
+            raise ValueError("prepared artifact encoding must be nonempty")
+        with data_path.open(newline="", encoding=encoding) as stream:
+            reader = csv.DictReader(stream, delimiter=delimiter)
+            if header and reader.fieldnames != list(columns):
                 raise ValueError(
                     f"data columns {reader.fieldnames!r} do not match declared columns {list(columns)!r}"
                 )
-            rows = []
+            if not header:
+                raise ValueError("prepared CSV artifacts require a header row")
+            row_count = 0
             for row in reader:
                 if None in row:
                     raise ValueError("data row has more fields than declared columns")
-                rows.append(tuple(row[column] for column in columns))
-        expected_rows = artifact.metadata.get("expected_rows", len(rows))
+                row_count += 1
+        expected_rows = artifact.metadata.get("expected_rows", row_count)
         if not isinstance(expected_rows, int) or expected_rows < 0:
             raise ValueError("expected_rows must be a nonnegative integer")
-        if expected_rows != len(rows):
+        if expected_rows != row_count:
             raise ValueError("prepared artifact row count does not match expected_rows")
 
         assert self.connection is not None
@@ -145,7 +179,14 @@ class PostgreSQLLoader(DatabaseLoader):
         try:
             target.connect()
             target.execute_script(schema_path.read_text(encoding="utf-8"))
-            rows_loaded = target.insert_rows(table, columns, rows)
+            target.copy_file(
+                table,
+                columns,
+                data_path,
+                delimiter=delimiter,
+                header=header,
+            )
+            rows_loaded = expected_rows
         finally:
             target.close()
 
@@ -163,6 +204,7 @@ class PostgreSQLLoader(DatabaseLoader):
                 "tables": sorted(expected_tables),
                 "rows_loaded": int(metadata.get("rows_loaded", 0)) + rows_loaded,
                 "loader_type": self.__class__.__name__,
+                "expected_columns": {table: list(columns)},
             }
         )
         return replace(instance, status="LOADED", metadata=metadata)
@@ -208,6 +250,26 @@ class PostgreSQLLoader(DatabaseLoader):
                             actual_tables,
                         )
                     )
+                    expected_columns = metadata.get("expected_columns", {})
+                    if expected_columns and not isinstance(expected_columns, dict):
+                        raise TypeError("instance expected_columns metadata must be a mapping")
+                    if expected_columns:
+                        actual_columns = {
+                            table: target.table_columns(table)
+                            for table in actual_tables
+                        }
+                        column_status = "PASS" if all(
+                            actual_columns.get(table) == list(columns)
+                            for table, columns in expected_columns.items()
+                        ) else "FAIL"
+                        checks.append(
+                            ValidationCheck(
+                                "expected_columns",
+                                column_status,
+                                expected_columns,
+                                actual_columns,
+                            )
+                        )
                     actual_counts = {
                         table: target.row_count(table)
                         for table in actual_tables
@@ -220,6 +282,8 @@ class PostgreSQLLoader(DatabaseLoader):
                 checks.append(ValidationCheck("version_query", "FAIL", "PostgreSQL 16.14", None, str(exc)))
                 if expected_tables:
                     checks.append(ValidationCheck("table_exists", "FAIL", sorted(expected_tables), None, str(exc)))
+                    if metadata.get("expected_columns"):
+                        checks.append(ValidationCheck("expected_columns", "FAIL", metadata["expected_columns"], None, str(exc)))
                     checks.append(ValidationCheck("row_count", "FAIL", expected_tables, None, str(exc)))
             finally:
                 target.close()
@@ -227,6 +291,8 @@ class PostgreSQLLoader(DatabaseLoader):
             checks.append(ValidationCheck("version_query", "FAIL", "PostgreSQL 16.14", None, "database does not exist"))
             if expected_tables:
                 checks.append(ValidationCheck("table_exists", "FAIL", sorted(expected_tables), [], "database does not exist"))
+                if metadata.get("expected_columns"):
+                    checks.append(ValidationCheck("expected_columns", "FAIL", metadata["expected_columns"], {}, "database does not exist"))
                 checks.append(ValidationCheck("row_count", "FAIL", expected_tables, {}, "database does not exist"))
         if version is not None:
             metadata["postgres_version"] = version

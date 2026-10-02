@@ -9,10 +9,12 @@ from dataclasses import dataclass, field
 import getpass
 import os
 import re
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
-_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DATABASE_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _MANAGED_PREFIX = "pgextbench_"
 _RESERVED_DATABASES = frozenset({"postgres", "template0", "template1"})
 
@@ -38,13 +40,13 @@ def _validate_database_name(name: str, *, managed: bool = True) -> str:
         raise ValueError("database name must be a nonempty string")
     if name in _RESERVED_DATABASES:
         raise ValueError(f"refusing reserved database name: {name}")
-    if len(name) > 63 or not _IDENTIFIER.fullmatch(name):
+    if len(name) > 63 or not _DATABASE_IDENTIFIER.fullmatch(name):
         raise ValueError(f"unsafe database identifier: {name!r}")
     if managed:
         if not name.startswith(_MANAGED_PREFIX):
             raise ValueError("database name is not a managed pgextbench database")
         suffix = name[len(_MANAGED_PREFIX):]
-        if not suffix or not _IDENTIFIER.fullmatch(suffix):
+        if not suffix or not _DATABASE_IDENTIFIER.fullmatch(suffix):
             raise ValueError(f"unsafe managed database identifier: {name!r}")
     return name
 
@@ -198,6 +200,47 @@ class PostgresConnection:
             raise RuntimeError(f"PostgreSQL row load failed: {exc}") from exc
         return len(values)
 
+    def copy_file(
+        self,
+        table: str,
+        columns: Sequence[str],
+        path: str | Path,
+        *,
+        delimiter: str = ",",
+        header: bool = True,
+    ) -> None:
+        """Bulk-load a delimited file with PostgreSQL COPY FROM STDIN."""
+
+        table = _validate_identifier(table, "table name")
+        columns = tuple(_validate_identifier(column, "column name") for column in columns)
+        if not columns:
+            raise ValueError("at least one column is required")
+        if not isinstance(delimiter, str) or len(delimiter) != 1:
+            raise ValueError("COPY delimiter must be one character")
+        source = Path(path)
+        if not source.is_file():
+            raise ValueError(f"COPY source is missing: {source}")
+        psycopg = _driver()
+        statement = psycopg.sql.SQL(
+            "COPY public.{} ({}) FROM STDIN WITH (FORMAT csv, HEADER {}, DELIMITER {})"
+        ).format(
+            psycopg.sql.Identifier(table),
+            psycopg.sql.SQL(", ").join(
+                psycopg.sql.Identifier(column) for column in columns
+            ),
+            psycopg.sql.SQL("TRUE" if header else "FALSE"),
+            psycopg.sql.Literal(delimiter),
+        )
+        connection = self.connect()
+        try:
+            with connection.cursor() as cursor:
+                with cursor.copy(statement) as copy:
+                    with source.open("rb") as stream:
+                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                            copy.write(chunk)
+        except Exception as exc:
+            raise RuntimeError(f"PostgreSQL COPY failed: {exc}") from exc
+
     def table_exists(self, table: str) -> bool:
         table = _validate_identifier(table, "table name")
         return bool(self.execute(
@@ -218,6 +261,16 @@ class PostgresConnection:
         if not rows or not rows[0]:
             raise RuntimeError("row count query returned no value")
         return int(rows[0][0])
+
+    def table_columns(self, table: str) -> list[str]:
+        table = _validate_identifier(table, "table name")
+        rows = self.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s "
+            "ORDER BY ordinal_position",
+            (table,),
+        )
+        return [str(row[0]) for row in rows]
 
     def for_database(self, database: str) -> "PostgresConnection":
         return type(self)(host=self.host, port=self.port, user=self.user, database=database)
