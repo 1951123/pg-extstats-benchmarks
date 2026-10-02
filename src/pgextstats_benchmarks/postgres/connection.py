@@ -9,12 +9,18 @@ from dataclasses import dataclass, field
 import getpass
 import os
 import re
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _MANAGED_PREFIX = "pgextbench_"
 _RESERVED_DATABASES = frozenset({"postgres", "template0", "template1"})
+
+
+def _validate_identifier(name: str, label: str = "identifier") -> str:
+    if not isinstance(name, str) or not _IDENTIFIER.fullmatch(name):
+        raise ValueError(f"unsafe {label}: {name!r}")
+    return name
 
 
 def _driver() -> Any:
@@ -153,6 +159,65 @@ class PostgresConnection:
         if not rows or not rows[0] or not isinstance(rows[0][0], str):
             raise RuntimeError("PostgreSQL version query returned no value")
         return rows[0][0]
+
+    def execute_script(self, script: str) -> None:
+        """Execute a schema script supplied by a prepared artifact."""
+
+        if not isinstance(script, str) or not script.strip():
+            raise ValueError("schema script must be nonempty")
+        self.execute(script)
+
+    def insert_rows(
+        self,
+        table: str,
+        columns: Sequence[str],
+        rows: Iterable[Sequence[Any]],
+    ) -> int:
+        """Insert prepared rows using quoted identifiers and parameters."""
+
+        table = _validate_identifier(table, "table name")
+        columns = tuple(_validate_identifier(column, "column name") for column in columns)
+        if not columns:
+            raise ValueError("at least one column is required")
+        values = [tuple(row) for row in rows]
+        if not values:
+            return 0
+        if any(len(row) != len(columns) for row in values):
+            raise ValueError("row width does not match the declared columns")
+        psycopg = _driver()
+        statement = psycopg.sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+            psycopg.sql.Identifier(table),
+            psycopg.sql.SQL(", ").join(psycopg.sql.Identifier(column) for column in columns),
+            psycopg.sql.SQL(", ").join(psycopg.sql.Placeholder() for _ in columns),
+        )
+        connection = self.connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.executemany(statement, values)
+        except Exception as exc:
+            raise RuntimeError(f"PostgreSQL row load failed: {exc}") from exc
+        return len(values)
+
+    def table_exists(self, table: str) -> bool:
+        table = _validate_identifier(table, "table name")
+        return bool(self.execute(
+            "SELECT 1 FROM pg_catalog.pg_class AS c "
+            "JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relname = %s "
+            "AND c.relkind IN ('r', 'p')",
+            (table,),
+        ))
+
+    def row_count(self, table: str) -> int:
+        table = _validate_identifier(table, "table name")
+        psycopg = _driver()
+        statement = psycopg.sql.SQL("SELECT count(*) FROM public.{}").format(
+            psycopg.sql.Identifier(table)
+        )
+        rows = self.execute(statement)
+        if not rows or not rows[0]:
+            raise RuntimeError("row count query returned no value")
+        return int(rows[0][0])
 
     def for_database(self, database: str) -> "PostgresConnection":
         return type(self)(host=self.host, port=self.port, user=self.user, database=database)

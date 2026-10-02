@@ -1,7 +1,7 @@
 """Execution records and repository-local JSON persistence."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 import json
 import uuid
 
@@ -32,6 +32,7 @@ class ExecutionRecord:
     input_artifacts: tuple[str, ...]
     output_artifacts: tuple[str, ...]
     message: str
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in ("execution_id", "benchmark_id", "stage", "status", "message"):
@@ -44,6 +45,8 @@ class ExecutionRecord:
         for artifact_id in (*self.input_artifacts, *self.output_artifacts):
             if not isinstance(artifact_id, str) or not artifact_id.strip():
                 raise ValueError("artifact IDs must be nonempty strings")
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("execution metadata must be a mapping")
 
     @property
     def benchmark(self) -> str:
@@ -69,6 +72,7 @@ class ExecutionRecord:
             "input_artifacts": list(self.input_artifacts),
             "output_artifacts": list(self.output_artifacts),
             "message": self.message,
+            "metadata": dict(self.metadata),
         }
 
     def to_json(self) -> str:
@@ -86,6 +90,7 @@ class ExecutionRecord:
             input_artifacts=tuple(value.get("input_artifacts", value.get("inputs", ()))),
             output_artifacts=tuple(value.get("output_artifacts", value.get("outputs", ()))),
             message=value["message"],
+            metadata=value.get("metadata", {}),
         )
 
 

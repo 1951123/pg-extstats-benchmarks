@@ -25,6 +25,7 @@ def main(argv=None) -> int:
     run.add_argument("--record", action="store_true")
     commands.add_parser("loaders")
     commands.add_parser("postgres-check")
+    commands.add_parser("load-example-postgres")
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -62,6 +63,19 @@ def main(argv=None) -> int:
                     except Exception:
                         pass
                 loader.close()
+        elif args.command == "load-example-postgres":
+            result = load_artifact("example", "postgres", destroy=True, record=True)
+            instance_metadata = result["instance"].get("metadata", {})
+            version = str(instance_metadata.get("postgres_version", "unknown"))
+            version_parts = version.split()
+            display_version = version_parts[1] if len(version_parts) > 1 else version
+            print(f"PostgreSQL: {display_version}")
+            print(f"Artifact: {result['artifact_ids'][0]}")
+            print(f"Load: {result['load']['status']}")
+            print(f"Validation: {result['validation']['status']}")
+            print(f"Rows: {instance_metadata.get('rows_loaded', 0)}")
+            print(f"Cleanup: {result['cleanup']['status']}")
+            return 0 if result["status"] == "PASS" else 1
         elif args.command == "load-example":
             result = load_artifact("example", args.loader)
             print(f"Loader: {result['loader']}")
@@ -108,7 +122,7 @@ def main(argv=None) -> int:
                 print(f"Status: {result.status}")
                 if result.configuration_missing:
                     return 1
-    except (ValueError, OSError, yaml.YAMLError) as exc:
+    except (ValueError, OSError, RuntimeError, yaml.YAMLError) as exc:
         print(f"pgextbench: {exc}", file=sys.stderr)
         return 1
     return 0

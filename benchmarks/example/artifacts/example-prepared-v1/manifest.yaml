@@ -1,0 +1,10 @@
+artifact_id: example-prepared-v1
+type: prepared_dataset
+schema_path: schema.sql
+data_path: data.csv
+table: example_table
+columns:
+  - id
+  - value
+expected_rows: 2
+format: csv

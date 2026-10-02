@@ -49,6 +49,7 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench validators
 .venv/bin/pgextbench validate-example
 .venv/bin/pgextbench postgres-check
+.venv/bin/pgextbench load-example-postgres
 .venv/bin/python -m pytest
 ```
 
@@ -79,6 +80,12 @@ current OS user), creates and validates a temporary `pgextbench_*` database,
 then drops only that managed database. Passwords are never stored by the
 framework.
 
+The checked-in example prepared artifact is under
+`benchmarks/example/artifacts/example-prepared-v1/`. It contains a two-row CSV
+and a schema for `example_table`. `load-example-postgres` creates a managed
+database, loads that artifact, validates the table and row count, records
+loader provenance, and drops the managed database.
+
 ## Definitions and external data
 
 Add a directory under `benchmarks/` and an entry in `registry/benchmarks.yaml`
@@ -92,5 +99,5 @@ Keep raw data immutable and outside Git. Large CSVs, database dumps, generated
 samples, prepared artifacts, and experiment outputs do not belong in this
 repository. No default data directory is guessed. Future pipeline stages must
 record source and derived artifact metadata using `ArtifactProvenance`.
-No deletion or database dropping API is implemented; destructive operations
-require a separate safety design.
+Database dropping is limited to the PostgreSQL loader's explicitly managed
+`pgextbench_*` databases; no filesystem cleanup is provided.

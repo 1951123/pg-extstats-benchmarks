@@ -1,8 +1,13 @@
 import json
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
+import yaml
 
 from pgextstats_benchmarks.cli import main
+from pgextstats_benchmarks.example_adapter import ExampleAdapter
+from pgextstats_benchmarks.executor import load_artifact
 from pgextstats_benchmarks.loader_registry import get_loader, list_loaders
 from pgextstats_benchmarks.postgres.connection import PostgresConnection
 from pgextstats_benchmarks.postgres.instance import PostgresInstance
@@ -59,6 +64,22 @@ def test_loader_registration():
     assert get_loader("postgres") is PostgreSQLLoader
 
 
+def test_example_prepared_artifact_structure():
+    root = Path(__file__).parents[1] / "benchmarks/example/artifacts/example-prepared-v1"
+    assert (root / "schema.sql").read_text(encoding="utf-8").startswith("CREATE TABLE example_table")
+    assert (root / "data.csv").read_text(encoding="utf-8") == "id,value\n1,hello\n2,world\n"
+    manifest = yaml.safe_load((root / "manifest.yaml").read_text(encoding="utf-8"))
+    assert manifest["artifact_id"] == "example-prepared-v1"
+    assert manifest["expected_rows"] == 2
+
+
+def test_example_adapter_declares_prepared_artifact():
+    artifact = ExampleAdapter().prepare()["output_artifacts"][0]
+    assert artifact.id == "example-prepared-v1"
+    assert Path(artifact.path, "schema.sql").is_file()
+    assert artifact.metadata["expected_rows"] == 2
+
+
 def _integration_loader():
     try:
         loader = PostgreSQLLoader()
@@ -82,6 +103,41 @@ def test_postgres_lifecycle_integration():
     finally:
         assert loader.destroy_instance(instance)["status"] == "PASS"
         loader.close()
+
+
+def test_postgres_artifact_loading_and_row_validation():
+    loader = _integration_loader()
+    instance = loader.create_instance("example")
+    artifact = ExampleAdapter().prepare()["output_artifacts"][0]
+    try:
+        loaded = loader.load_artifact(instance, artifact)
+        assert loaded.status == "LOADED"
+        assert loaded.metadata["tables"] == ["example_table"]
+        assert loaded.metadata["rows_loaded"] == 2
+        report = loader.validate_instance(loaded)
+        assert report["status"] == "PASS"
+        assert {check["name"] for check in report["checks"]} >= {
+            "table_exists", "row_count"
+        }
+        wrong_counts = dict(loaded.metadata)
+        wrong_counts["expected_tables"] = {"example_table": 3}
+        failed = loader.validate_instance(replace(loaded, metadata=wrong_counts))
+        assert failed["status"] == "FAIL"
+        assert next(check for check in failed["checks"] if check["name"] == "row_count")["status"] == "FAIL"
+    finally:
+        assert loader.destroy_instance(instance)["status"] == "PASS"
+        loader.close()
+
+
+def test_postgres_artifact_execution_provenance():
+    loader = _integration_loader()
+    loader.close()
+    result = load_artifact("example", "postgres", destroy=True, record=True)
+    assert result["status"] == "PASS"
+    assert result["provenance"]["artifact_id"] == "example-prepared-v1"
+    assert result["provenance"]["loader_type"] == "PostgreSQLLoader"
+    assert result["provenance"]["instance_metadata"]["rows_loaded"] == 2
+    assert result["execution"]["metadata"]["artifact_id"] == "example-prepared-v1"
 
 
 def test_postgres_check_cli(capsys):

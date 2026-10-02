@@ -104,6 +104,8 @@ def load_artifact(
     loader: str | None = None,
     *,
     benchmark: str | None = None,
+    destroy: bool = False,
+    record: bool = False,
 ) -> dict:
     """Pass a prepared metadata artifact through a registered mock loader.
 
@@ -139,25 +141,69 @@ def load_artifact(
 
     loader_class = get_loader(loader)
     loader_instance = loader_class()
-    instance = loader_instance.create_instance(benchmark_id)
-    for artifact in prepared_artifacts:
-        instance = loader_instance.load_artifact(instance, artifact)
-    validation = loader_instance.validate_instance(instance)
-    if not isinstance(validation, dict):
-        raise ValueError(f"Loader {loader_class.__name__}.validate_instance must return a mapping")
-    status = validation.get("status")
-    message = validation.get("message")
-    if not isinstance(status, str) or not isinstance(message, str):
-        raise ValueError(f"Loader {loader_class.__name__}.validate_instance must return status/message")
-    return {
-        "benchmark_id": benchmark_id,
-        "loader": loader_class.__name__,
-        "instance": instance.to_dict(),
-        "artifact_ids": [artifact.id for artifact in prepared_artifacts],
-        "status": status,
-        "message": message,
-        "validation": validation,
-    }
+    instance = None
+    destroyed = False
+    try:
+        instance = loader_instance.create_instance(benchmark_id)
+        for artifact in prepared_artifacts:
+            instance = loader_instance.load_artifact(instance, artifact)
+        validation = loader_instance.validate_instance(instance)
+        if not isinstance(validation, dict):
+            raise ValueError(f"Loader {loader_class.__name__}.validate_instance must return a mapping")
+        status = validation.get("status")
+        message = validation.get("message", f"{loader_class.__name__} validation completed")
+        if not isinstance(status, str) or not isinstance(message, str):
+            raise ValueError(f"Loader {loader_class.__name__}.validate_instance must return status/message")
+        result = {
+            "benchmark_id": benchmark_id,
+            "loader": loader_class.__name__,
+            "instance": instance.to_dict(),
+            "artifact_ids": [artifact.id for artifact in prepared_artifacts],
+            "status": status,
+            "message": message,
+            "load": {"status": "PASS", "message": f"{loader_class.__name__} loaded artifacts"},
+            "validation": validation,
+        }
+        if destroy:
+            cleanup = loader_instance.destroy_instance(instance)
+            destroyed = cleanup.get("status") == "PASS"
+            result["cleanup"] = cleanup
+            if not destroyed:
+                result["status"] = "FAIL"
+        provenance = {
+            "artifact_id": prepared_artifacts[0].id,
+            "artifact_ids": [artifact.id for artifact in prepared_artifacts],
+            "postgres_version": instance.metadata.get("postgres_version"),
+            "loader_type": loader_class.__name__,
+            "instance_metadata": dict(instance.metadata),
+        }
+        result["provenance"] = provenance
+        if record:
+            execution = ExecutionRecord(
+                execution_id=new_execution_id(),
+                benchmark_id=benchmark_id,
+                stage="load",
+                status=result["status"],
+                repository_commit=repository_commit(_REPO_ROOT),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                input_artifacts=tuple(artifact.id for artifact in prepared_artifacts),
+                output_artifacts=(),
+                message=message,
+                metadata=provenance,
+            )
+            path = write_execution_record(execution, _REPO_ROOT)
+            result["execution"] = execution.to_dict()
+            result["execution_path"] = str(path.relative_to(_REPO_ROOT))
+        return result
+    finally:
+        if destroy and instance is not None and not destroyed:
+            try:
+                loader_instance.destroy_instance(instance)
+            except Exception:
+                pass
+        close = getattr(loader_instance, "close", None)
+        if callable(close):
+            close()
 
 
 def validate_instance(

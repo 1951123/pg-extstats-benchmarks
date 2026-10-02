@@ -13,7 +13,7 @@ pipeline:
   truth: null
 artifacts:
   raw: null
-  prepared: null
+  prepared: artifacts/example-prepared-v1/manifest.yaml
   loaded: null
 provenance:
   url: null

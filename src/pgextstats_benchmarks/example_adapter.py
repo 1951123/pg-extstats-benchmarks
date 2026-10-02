@@ -1,4 +1,6 @@
 """Toy adapter used to exercise the lifecycle without external systems."""
+from pathlib import Path
+
 from .adapter import BenchmarkAdapter
 from .adapters import register_adapter
 from .artifacts import Artifact
@@ -8,11 +10,19 @@ class ExampleAdapter(BenchmarkAdapter):
     """An entirely in-memory adapter with one successful result per stage."""
 
     def _artifact(
-        self, artifact_id: str, artifact_type: str, parents: tuple[str, ...] = ()
+        self,
+        artifact_id: str,
+        artifact_type: str,
+        parents: tuple[str, ...] = (),
+        *,
+        path: Path | None = None,
+        metadata: dict | None = None,
     ) -> Artifact:
         return Artifact(
             id=artifact_id,
             type=artifact_type,
+            path=path,
+            metadata=metadata or {},
             created_by=self.__class__.__name__,
             creation_info={"source": "in-memory example adapter"},
             parent_artifacts=parents,
@@ -37,12 +47,29 @@ class ExampleAdapter(BenchmarkAdapter):
         )
 
     def prepare(self) -> dict:
+        artifact_root = (
+            Path(__file__).resolve().parents[2]
+            / "benchmarks"
+            / "example"
+            / "artifacts"
+            / "example-prepared-v1"
+        )
         return self._completed(
             "prepare",
             inputs=(self._artifact("example-raw-v1", "raw_dataset"),),
             outputs=(
                 self._artifact(
-                    "example-prepared-v1", "prepared_dataset", ("example-raw-v1",)
+                    "example-prepared-v1",
+                    "prepared_dataset",
+                    ("example-raw-v1",),
+                    path=artifact_root,
+                    metadata={
+                        "schema_path": "schema.sql",
+                        "data_path": "data.csv",
+                        "table": "example_table",
+                        "columns": ["id", "value"],
+                        "expected_rows": 2,
+                    },
                 ),
             ),
         )
