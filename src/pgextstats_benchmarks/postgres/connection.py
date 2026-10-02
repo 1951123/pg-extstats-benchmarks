@@ -348,6 +348,42 @@ class PostgresConnection:
             (statistics_oid, relation_oid, kind_code),
         )
 
+    def hypothetical_register_definition(
+        self, candidate_id: str, relation_oid: int, kind_code: str,
+        attribute_keys: Sequence[int], payload: bytes,
+    ) -> int:
+        """Register a catalogless native hypothetical definition."""
+
+        if not isinstance(candidate_id, str) or not candidate_id:
+            raise ValueError("candidate_id must be nonempty")
+        if not isinstance(attribute_keys, (list, tuple)) or len(attribute_keys) < 2:
+            raise ValueError("attribute_keys must contain at least two entries")
+        rows = self.execute(
+            'SELECT pg_hypothetical_extstats_register_definition(%s,%s::oid,%s::"char",%s::smallint[],%s::bytea)',
+            (candidate_id, relation_oid, kind_code, list(attribute_keys), bytes(payload)),
+        )
+        if not rows or not rows[0]:
+            raise RuntimeError("catalogless hypothetical registration returned no identity")
+        return int(rows[0][0])
+
+    def hypothetical_register_definition_absent(
+        self, candidate_id: str, relation_oid: int, kind_code: str,
+        attribute_keys: Sequence[int],
+    ) -> int:
+        """Register an absent-native catalogless hypothetical definition."""
+
+        if not isinstance(candidate_id, str) or not candidate_id:
+            raise ValueError("candidate_id must be nonempty")
+        if not isinstance(attribute_keys, (list, tuple)) or len(attribute_keys) < 2:
+            raise ValueError("attribute_keys must contain at least two entries")
+        rows = self.execute(
+            'SELECT pg_hypothetical_extstats_register_definition_absent(%s,%s::oid,%s::"char",%s::smallint[])',
+            (candidate_id, relation_oid, kind_code, list(attribute_keys)),
+        )
+        if not rows or not rows[0]:
+            raise RuntimeError("catalogless hypothetical registration returned no identity")
+        return int(rows[0][0])
+
     def hypothetical_activate(self, statistics_oids: Sequence[int]) -> list[int]:
         values = [int(value) for value in statistics_oids]
         if any(value <= 0 for value in values) or len(set(values)) != len(values):

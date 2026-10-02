@@ -144,6 +144,49 @@ class FakeRootConnection:
     def close(self): pass
 
 
+class CataloglessFakeTarget(FakeTarget):
+    def table_columns(self, table):
+        assert table == "fixture"
+        return ["a", "b"]
+
+    def statistics_object(self, schema, name):
+        raise AssertionError("catalogless registration must not inspect pg_statistic_ext")
+
+    def hypothetical_register_definition(self, candidate_id, relation_oid, kind, attribute_keys, payload):
+        self.calls.append(("catalogless_register", candidate_id, kind, tuple(attribute_keys)))
+        oid = 200 + len(self.registered)
+        self.registered.append(oid)
+        return oid
+
+    def hypothetical_register_definition_absent(self, candidate_id, relation_oid, kind, attribute_keys):
+        self.calls.append(("catalogless_register_absent", candidate_id, kind, tuple(attribute_keys)))
+        oid = 200 + len(self.registered)
+        self.registered.append(oid)
+        return oid
+
+
+class CataloglessFakeRootConnection:
+    def __init__(self): self.target = CataloglessFakeTarget()
+    def for_database(self, database): return self.target
+    def close(self): pass
+
+
+def test_catalogless_registration_does_not_require_physical_definitions(tmp_path):
+    repository = make_repository(tmp_path)
+    connection = CataloglessFakeRootConnection()
+    provider = PostgreSQLStatisticsConfigurationProvider(connection)
+    instance = PostgresInstance("pgextbench_example", "pgextbench_example", "READY")
+    result = provider.register_repository(instance, repository, root=tmp_path)
+    assert result["status"] == "PASS"
+    assert result["catalogless"] is True
+    assert provider.registration_calls == 4
+    assert connection.target.calls[0] == "reset"
+    assert [call[0] for call in connection.target.calls[1:]] == [
+        "catalogless_register", "catalogless_register",
+        "catalogless_register", "catalogless_register",
+    ]
+
+
 def test_estimate_provider_exact_subset_reuse_and_no_physical_operations(tmp_path):
     repository = make_repository(tmp_path)
     workload = Workload("workload-v1", (Query("q001", "SELECT * FROM public.fixture WHERE a = 1"), Query("q002", "SELECT * FROM public.fixture WHERE b = 1")))

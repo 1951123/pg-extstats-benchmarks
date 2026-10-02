@@ -36,7 +36,9 @@ plugin; no PostgreSQL details enter the core models.
   records opaque native payloads.
 - `statistics_configuration.py` validates an explicit candidate subset.
   `postgres/configuration_provider.py` registers the native repository once per
-  backend session and switches exact active subsets. `estimate.py` and
+  backend session through the catalogless PostgreSQL overlay when available;
+  it never requires a physical `pg_statistic_ext` shell during evaluation, and
+  switches exact active subsets. `estimate.py` and
   `postgres/estimate_provider.py` record `EXPLAIN (FORMAT JSON)` Plan Rows
   without physical statistics changes.
 - `evaluation.py` is a pure offline evaluator for one `TruthArtifact` and one
@@ -87,6 +89,11 @@ and `ValidationReport`—do not import the CLI, adapters, loaders, or any DBMS.
 `SampleArtifact` is also a core metadata model: it contains no SQL or binary
 parser; the PostgreSQL provider remains the only component that asks a server
 to decode its payload.
+Repository acquisition may create temporary physical statistics definitions
+solely to obtain native payloads. Evaluation consumes the persisted repository
+through backend-local catalogless definitions, so the target relation can have
+zero `pg_statistic_ext` and `pg_statistic_ext_data` rows; reset restores the
+ordinary planner state and unrelated physical statistics remain visible.
 `EvaluationArtifact` and `ArtifactEvaluator` are core/offline models: they
 consume already-produced truth and estimate artifacts and never depend on
 PostgreSQL or the advisor repository. Evaluation metrics are descriptive and

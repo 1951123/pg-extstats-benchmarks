@@ -114,10 +114,13 @@ The fixed-sample native statistics repository contract is documented in
 Configuration and native planner observations are documented in
 [`docs/statistics-configurations.md`](docs/statistics-configurations.md) and
 [`docs/estimate-artifacts.md`](docs/estimate-artifacts.md).
-`estimate-collect` expects a managed database whose catalog definitions were
-prepared during repository acquisition; its provider only registers opaque
-payloads, activates the requested subset, runs `EXPLAIN (FORMAT JSON)`, and
-resets the subset.
+`estimate-collect` consumes a persisted repository through the patched
+PostgreSQL catalogless overlay. Repository acquisition may have used temporary
+physical definitions to produce native payloads, but evaluation itself only
+registers opaque payloads and definition metadata in the backend session,
+activates the requested subset, runs `EXPLAIN (FORMAT JSON)`, and resets the
+subset. The target relation therefore needs no physical `pg_statistic_ext` or
+`pg_statistic_ext_data` rows during evaluation.
 
 `evaluate` is a pure offline comparison of one existing truth artifact and one
 existing estimate artifact. It reports descriptive q-error metrics and writes

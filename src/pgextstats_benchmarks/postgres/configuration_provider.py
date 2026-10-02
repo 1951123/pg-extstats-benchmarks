@@ -66,37 +66,60 @@ class PostgreSQLStatisticsConfigurationProvider:
         schema, _relation_name = relation.split(".", 1)
         relation_oid = target.relation_oid(relation)
         oids: dict[str, int] = {}
+        catalogless = callable(getattr(target, "hypothetical_register_definition", None))
+        relation_columns = target.table_columns(_relation_name) if catalogless else []
         for state in repository.candidate_states:
             metadata = dict(state.native_metadata)
-            statistics_name = metadata.get("statistics_name")
-            if not isinstance(statistics_name, str) or not statistics_name.startswith("pgextbench_stat_"):
-                raise ValueError(f"managed statistics name is missing for {state.candidate_id}")
-            object_row = target.statistics_object(schema, statistics_name)
-            if object_row is None:
-                raise RuntimeError(f"catalog definition is missing for {state.candidate_id}")
-            backend_oid, actual_relation_oid, kinds, _name = object_row
-            if int(actual_relation_oid) != relation_oid:
-                raise RuntimeError(f"relation mismatch for {state.candidate_id}")
             kind_code = _KIND_CODE[state.kind]
-            if kind_code not in str(kinds):
-                raise RuntimeError(f"statistics kind mismatch for {state.candidate_id}")
-            backend_oid = int(backend_oid)
-            if state.state == "PRESENT":
-                payload_path = self._payload_path(repository, state.candidate_id, state.kind, root)
-                payload = payload_path.read_bytes()
-                if hashlib.sha256(payload).hexdigest() != state.payload_fingerprint:
-                    raise ValueError(f"repository payload checksum mismatch for {state.candidate_id}")
-                target.hypothetical_register(backend_oid, relation_oid, kind_code, payload)
-            elif state.state == "ABSENT_NATIVE":
-                target.hypothetical_register_absent(backend_oid, relation_oid, kind_code)
+            if catalogless:
+                try:
+                    attribute_keys = [relation_columns.index(column) + 1 for column in state.columns]
+                except ValueError as exc:
+                    raise RuntimeError(f"repository column is missing from relation for {state.candidate_id}") from exc
+                if state.state == "PRESENT":
+                    payload_path = self._payload_path(repository, state.candidate_id, state.kind, root)
+                    payload = payload_path.read_bytes()
+                    if hashlib.sha256(payload).hexdigest() != state.payload_fingerprint:
+                        raise ValueError(f"repository payload checksum mismatch for {state.candidate_id}")
+                    backend_oid = target.hypothetical_register_definition(
+                        state.candidate_id, relation_oid, kind_code, attribute_keys, payload
+                    )
+                elif state.state == "ABSENT_NATIVE":
+                    backend_oid = target.hypothetical_register_definition_absent(
+                        state.candidate_id, relation_oid, kind_code, attribute_keys
+                    )
+                else:
+                    raise ValueError(f"unsupported repository state: {state.state}")
             else:
-                raise ValueError(f"unsupported repository state: {state.state}")
+                statistics_name = metadata.get("statistics_name")
+                if not isinstance(statistics_name, str) or not statistics_name.startswith("pgextbench_stat_"):
+                    raise ValueError(f"managed statistics name is missing for {state.candidate_id}")
+                object_row = target.statistics_object(schema, statistics_name)
+                if object_row is None:
+                    raise RuntimeError(f"catalog definition is missing for {state.candidate_id}")
+                backend_oid, actual_relation_oid, kinds, _name = object_row
+                if int(actual_relation_oid) != relation_oid:
+                    raise RuntimeError(f"relation mismatch for {state.candidate_id}")
+                if kind_code not in str(kinds):
+                    raise RuntimeError(f"statistics kind mismatch for {state.candidate_id}")
+                backend_oid = int(backend_oid)
+                if state.state == "PRESENT":
+                    payload_path = self._payload_path(repository, state.candidate_id, state.kind, root)
+                    payload = payload_path.read_bytes()
+                    if hashlib.sha256(payload).hexdigest() != state.payload_fingerprint:
+                        raise ValueError(f"repository payload checksum mismatch for {state.candidate_id}")
+                    target.hypothetical_register(backend_oid, relation_oid, kind_code, payload)
+                elif state.state == "ABSENT_NATIVE":
+                    target.hypothetical_register_absent(backend_oid, relation_oid, kind_code)
+                else:
+                    raise ValueError(f"unsupported repository state: {state.state}")
             oids[state.candidate_id] = backend_oid
             self.registration_calls += 1
         self.repository = repository
         self._oids = oids
         self._relation_oid = relation_oid
-        return {"status": "PASS", "registered": True, "registration_calls": self.registration_calls}
+        return {"status": "PASS", "registered": True, "registration_calls": self.registration_calls,
+                "catalogless": catalogless}
 
     def activate(self, configuration: StatisticsConfiguration) -> list[str]:
         if self.repository is None or self.target is None:
