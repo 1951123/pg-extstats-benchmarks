@@ -9,6 +9,7 @@ from pgextstats_benchmarks.evaluation import (
     ArtifactEvaluator,
     EvaluationArtifact,
     QueryEvaluation,
+    aggregate_q_errors,
     q_error,
     truth_digest,
 )
@@ -61,10 +62,21 @@ def make_inputs(order=("q001", "q002", "q003")):
 
 
 def test_q_error_matches_frozen_advisor_rule():
+    assert q_error(10, 10) == 1.0
     assert q_error(20, 10) == 2.0
     assert q_error(0, 10) == 10.0
+    assert q_error(10_000_000, 1) == 10_000_000.0
     with pytest.raises(ValueError, match="positive truth"):
         q_error(0, 0)
+
+
+def test_nearest_rank_percentiles_are_explicit_for_even_and_odd_counts():
+    even = aggregate_q_errors([1.0, 3.0])
+    odd = aggregate_q_errors([1.0, 3.0, 7.0])
+    assert even["median_q_error"] == 1.0
+    assert even["p90_q_error"] == 3.0
+    assert odd["median_q_error"] == 3.0
+    assert odd["p90_q_error"] == 7.0
 
 
 def test_evaluation_is_deterministic_and_query_order_independent():
@@ -115,6 +127,33 @@ def test_input_compatibility_is_strict():
     )
     with pytest.raises(ValueError, match="query ID universe"):
         ArtifactEvaluator().evaluate(truth, extra)
+
+
+def test_error_estimates_are_not_silently_converted_to_metrics():
+    truth, estimate = make_inputs(("q001",))
+    failed = EstimateArtifact.create(
+        artifact_id="estimate-error", benchmark_id=estimate.benchmark_id,
+        workload_id=estimate.workload_id, workload_digest=estimate.workload_digest,
+        repository_artifact_id=estimate.repository_artifact_id, repository_digest=estimate.repository_digest,
+        configuration_id=estimate.configuration_id, configuration_digest=estimate.configuration_digest,
+        relation_identity=estimate.relation_identity, postgres_source=SOURCE,
+        query_estimates=(QueryEstimate("q001", "ERROR"),), query_count=1,
+        successful_count=0, failed_count=1, estimate_digest="0" * 64, lineage=estimate.lineage,
+    )
+    result = ArtifactEvaluator().evaluate(truth, failed)
+    assert result.status == "FAIL"
+    assert result.failed_count == 1
+    assert result.aggregate_metrics["count"] == 0
+
+
+def test_benchmark_and_estimate_digest_mismatches_are_rejected():
+    truth, estimate = make_inputs(("q001",))
+    wrong_benchmark = TruthArtifact("other", truth.workload_id, truth.query_results, truth.metadata)
+    with pytest.raises(ValueError, match="benchmark_id"):
+        ArtifactEvaluator().evaluate(wrong_benchmark, estimate)
+    object.__setattr__(estimate, "estimate_digest", "f" * 64)
+    with pytest.raises(ValueError, match="estimate_digest"):
+        ArtifactEvaluator().evaluate(truth, estimate)
 
 
 def test_serialization_storage_and_validator(tmp_path):
