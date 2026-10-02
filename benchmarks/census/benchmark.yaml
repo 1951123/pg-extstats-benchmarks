@@ -1,6 +1,6 @@
 benchmark_id: census
 version: v1
-description: CENSUS benchmark placeholder
+description: CENSUS 1990 benchmark source and preparation contract
 sources:
   data:
     manifest: sources/data.yaml
@@ -12,8 +12,9 @@ pipeline:
   validate: null
   truth: null
 artifacts:
-  raw: null
-  prepared: null
+  raw: census-raw-v1
+  prepared: census-prepared-v1
+  workload: census-workload-v1
   loaded: null
 provenance:
   url: null

@@ -1,6 +1,4 @@
-kind: data
-status: placeholder
-source_url: null
-raw_artifact: null
-sha256: null
-timestamp: null
+kind: dataset
+status: declared
+source_url: https://archive.ics.uci.edu/static/public/116/us+census+data+1990.zip
+sha256: a9a1b84168456ab65b0f2fba7df2c1025aac15b61cd9667c6459f83dcf30b61a

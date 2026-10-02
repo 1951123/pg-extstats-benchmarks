@@ -17,6 +17,7 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
     commands.add_parser("list")
+    commands.add_parser("benchmarks")
     verify = commands.add_parser("verify")
     verify.add_argument("benchmark")
     run = commands.add_parser("run")
@@ -106,7 +107,7 @@ def main(argv=None) -> int:
                 print(f"Execution record: {result['execution_path']}")
         else:
             registry = load_registry(args.repo)
-            if args.command == "list":
+            if args.command in {"list", "benchmarks"}:
                 for benchmark in registry.values():
                     print(f"{benchmark.id}\t{benchmark.version}\t{benchmark.status}")
             else:

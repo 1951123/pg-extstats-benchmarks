@@ -1,6 +1,4 @@
 kind: workload
-status: placeholder
-source_url: null
-raw_artifact: null
-sha256: null
-timestamp: null
+status: declared
+raw_url: https://raw.githubusercontent.com/wuziniu/BayesCard/master/Benchmark/Census/query.sql
+sha256: e581c088a4e4281c79cbdc5ea8502ba657eb2efd7d656d6ab7973eba05d8f861

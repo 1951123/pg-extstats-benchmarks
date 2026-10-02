@@ -15,6 +15,8 @@ from .validators import BenchmarkValidator
 from .example_adapter import ExampleAdapter
 from .example_loader import ExampleMemoryLoader
 from .example_validator import ExampleValidator
+from .census_adapter import CensusAdapter
+from .census_validator import CensusValidator
 from .postgres import PostgresConnection, PostgresInstance, PostgreSQLLoader
 
 __all__ = [
@@ -27,6 +29,8 @@ __all__ = [
     "ExampleAdapter",
     "ExampleMemoryLoader",
     "ExampleValidator",
+    "CensusAdapter",
+    "CensusValidator",
     "LoadedInstance",
     "Lineage",
     "PostgresConnection",
