@@ -28,3 +28,7 @@ but is not loaded by this phase. It is tab-delimited, has no header, contains
 The archive also contains documentation, attribute descriptions, an HTML
 coding file, and `USCensus1990.mapping.sql`. No workload SQL is executed by
 the loader.
+
+The generated schema maps source header names to PostgreSQL lowercase column
+names so the workload's unquoted identifiers retain their intended meaning;
+the prepared manifest records both source `columns` and `database_columns`.

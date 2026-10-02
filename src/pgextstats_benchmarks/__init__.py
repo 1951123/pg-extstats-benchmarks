@@ -9,6 +9,9 @@ from .lineage import Lineage
 from .loaders import DatabaseLoader
 from .validation import ValidationCheck, ValidationReport
 from .validators import BenchmarkValidator
+from .query_runner import QueryExecutionResult, QueryRunner
+from .truth import TruthArtifact
+from .workload_executor import Query, Workload
 
 # Importing these modules performs the explicit toy registrations. There is
 # no dynamic discovery; the example implementations are the only built-ins.
@@ -17,6 +20,7 @@ from .example_loader import ExampleMemoryLoader
 from .example_validator import ExampleValidator
 from .census_adapter import CensusAdapter
 from .census_validator import CensusValidator
+from .census_validator import CensusTruthValidator
 from .postgres import PostgresConnection, PostgresInstance, PostgreSQLLoader
 
 __all__ = [
@@ -31,6 +35,7 @@ __all__ = [
     "ExampleValidator",
     "CensusAdapter",
     "CensusValidator",
+    "CensusTruthValidator",
     "LoadedInstance",
     "Lineage",
     "PostgresConnection",
@@ -38,4 +43,9 @@ __all__ = [
     "PostgreSQLLoader",
     "ValidationCheck",
     "ValidationReport",
+    "Query",
+    "Workload",
+    "QueryRunner",
+    "QueryExecutionResult",
+    "TruthArtifact",
 ]

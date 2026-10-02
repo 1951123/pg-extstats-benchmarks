@@ -15,6 +15,8 @@ from .artifacts import Artifact
 from .paths import benchmark_data_root, confined_path
 from .registry import load_manifest, load_registry, read_mapping
 from .adapters import register_adapter
+from .workload_executor import load_workload_artifact, normalize_workload
+from .truth import TruthArtifact
 
 
 class CensusAdapter(BenchmarkAdapter):
@@ -250,6 +252,7 @@ class CensusAdapter(BenchmarkAdapter):
                 "data_path": data_path,
                 "table": "census",
                 "columns": columns,
+                "database_columns": [column.lower() for column in columns],
                 "expected_rows": expected_rows,
                 "format": "csv",
                 "delimiter": ",",
@@ -273,6 +276,11 @@ class CensusAdapter(BenchmarkAdapter):
         if not source_path.is_file():
             raise FileNotFoundError("Run Census fetch before normalize_workload")
         workload = source_path.read_bytes()
+        workload_model = normalize_workload(
+            workload,
+            workload_id="census-workload-v1",
+            source_checksum=workload_sha,
+        )
         workload_dir = self.artifacts_root / "census-workload-v1"
         self._write_source(workload_dir / "query.sql", workload, workload_sha, "workload")
         timestamp = self._timestamp()
@@ -286,6 +294,11 @@ class CensusAdapter(BenchmarkAdapter):
                 "sha256": workload_sha,
                 "size": len(workload),
                 "timestamp": timestamp,
+                "source_checksum": workload_model.metadata["source_checksum"],
+                "query_count": workload_model.query_count,
+                "source_line_count": workload_model.metadata["source_line_count"],
+                "normalization": workload_model.metadata["normalization"],
+                "query_id_format": workload_model.metadata["query_id_format"],
             },
         )
         artifact = self._artifact_from_manifest(workload_dir)
@@ -295,14 +308,71 @@ class CensusAdapter(BenchmarkAdapter):
             "output_artifacts": (artifact,),
         }
 
+    def collect_truth(self, instance: Any = None, runner: Any = None) -> dict[str, Any]:
+        """Execute a normalized workload through an injected DBMS runner."""
+        if instance is None:
+            return {
+                "status": "INCOMPLETE",
+                "message": "collect_truth requires a loaded PostgreSQL instance",
+            }
+        workload_dir = self.artifacts_root / "census-workload-v1"
+        workload_artifact = self._artifact_from_manifest(workload_dir)
+        workload = load_workload_artifact(workload_dir)
+        if runner is None:
+            from .postgres.query_runner import PostgreSQLQueryRunner
+
+            runner = PostgreSQLQueryRunner()
+        results = runner.execute_workload(workload, instance)
+        truth = TruthArtifact(
+            benchmark_id="census",
+            workload_id=workload.workload_id,
+            query_results=results,
+            metadata={
+                "runner": runner.__class__.__name__,
+                "query_count": workload.query_count,
+                "successful_queries": sum(result.status == "PASS" for result in results),
+            },
+        )
+        truth_dir = self.artifacts_root / "census-truth-v1"
+        truth_dir.mkdir(parents=True, exist_ok=True)
+        truth_bytes = truth.to_json().encode("utf-8")
+        truth_path = truth_dir / "truth.json"
+        truth_path.write_bytes(truth_bytes)
+        truth_digest = self._digest(truth_bytes)
+        timestamp = self._timestamp()
+        self._write_json(
+            self._artifact_manifest(truth_dir),
+            {
+                "artifact_id": "census-truth-v1",
+                "type": "truth",
+                "parent_artifacts": [workload_artifact.id],
+                "source_url": workload_artifact.metadata.get("source_url"),
+                "sha256": truth_digest,
+                "size": len(truth_bytes),
+                "timestamp": timestamp,
+                "workload_id": workload.workload_id,
+                "query_count": workload.query_count,
+                "successful_queries": truth.successful_queries,
+                "runner": runner.__class__.__name__,
+            },
+        )
+        artifact = self._artifact_from_manifest(truth_dir)
+        status = "PASS" if truth.successful_queries == truth.query_count else "FAIL"
+        return {
+            "status": status,
+            "message": "census truth collection completed" if status == "PASS" else "census truth collection had failures",
+            "input_artifacts": (workload_artifact,),
+            "output_artifacts": (artifact,),
+            "truth": truth,
+            "workload": workload,
+        }
+
     def load(self) -> dict[str, Any]:
         return {"status": "NOT_IMPLEMENTED", "message": "census load is not implemented"}
 
     def validate(self) -> dict[str, Any]:
         return {"status": "NOT_IMPLEMENTED", "message": "census validate is not implemented"}
 
-    def collect_truth(self) -> dict[str, Any]:
-        return {"status": "NOT_IMPLEMENTED", "message": "census collect_truth is not implemented"}
 
 
 register_adapter("census", CensusAdapter)

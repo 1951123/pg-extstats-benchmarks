@@ -142,6 +142,12 @@ class PostgreSQLLoader(DatabaseLoader):
         columns = tuple(columns)
         if not all(isinstance(column, str) and column for column in columns):
             raise ValueError("prepared artifact columns must be nonempty strings")
+        database_columns = artifact.metadata.get("database_columns", columns)
+        if not isinstance(database_columns, (list, tuple)) or len(database_columns) != len(columns):
+            raise ValueError("prepared artifact database_columns must match columns")
+        database_columns = tuple(database_columns)
+        if not all(isinstance(column, str) and column for column in database_columns):
+            raise ValueError("prepared artifact database_columns must be nonempty strings")
 
         data_format = artifact.metadata.get("format", "csv")
         if data_format != "csv":
@@ -181,7 +187,7 @@ class PostgreSQLLoader(DatabaseLoader):
             target.execute_script(schema_path.read_text(encoding="utf-8"))
             target.copy_file(
                 table,
-                columns,
+                database_columns,
                 data_path,
                 delimiter=delimiter,
                 header=header,
@@ -204,7 +210,7 @@ class PostgreSQLLoader(DatabaseLoader):
                 "tables": sorted(expected_tables),
                 "rows_loaded": int(metadata.get("rows_loaded", 0)) + rows_loaded,
                 "loader_type": self.__class__.__name__,
-                "expected_columns": {table: list(columns)},
+                "expected_columns": {table: list(database_columns)},
             }
         )
         return replace(instance, status="LOADED", metadata=metadata)

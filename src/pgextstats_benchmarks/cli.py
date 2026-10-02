@@ -11,6 +11,8 @@ from .loader_registry import get_loader, list_loaders
 from .validator_registry import list_validators
 from .census_adapter import CensusAdapter
 from .census_validator import CensusValidator
+from .census_validator import CensusTruthValidator
+from .postgres.query_runner import PostgreSQLQueryRunner
 from .execution import ExecutionRecord, new_execution_id, repository_commit, write_execution_record
 from datetime import datetime, timezone
 
@@ -32,6 +34,7 @@ def main(argv=None) -> int:
     commands.add_parser("postgres-check")
     commands.add_parser("load-example-postgres")
     commands.add_parser("load-census-postgres")
+    commands.add_parser("collect-census-truth")
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -144,6 +147,70 @@ def main(argv=None) -> int:
             print(f"Loader: {result['loader']}")
             print(f"Instance: {result['instance']['instance_id']}")
             print(f"Status: {result['instance']['status']}")
+        elif args.command == "collect-census-truth":
+            adapter = CensusAdapter()
+            prepared_result = adapter.prepare()
+            prepared = prepared_result["output_artifacts"][0]
+            workload_result = adapter.normalize_workload()
+            workload_artifact = workload_result["output_artifacts"][0]
+            loader = get_loader("postgres")()
+            runner = PostgreSQLQueryRunner()
+            instance = None
+            destroyed = False
+            try:
+                instance = loader.create_instance("census")
+                loaded = loader.load_artifact(instance, prepared)
+                database_validation = loader.validate_instance(loaded)
+                if database_validation["status"] != "PASS":
+                    raise RuntimeError("Census database validation failed before truth collection")
+                truth_result = adapter.collect_truth(loaded, runner)
+                truth = truth_result["truth"]
+                truth_report = CensusTruthValidator().validate_truth(
+                    truth_result["workload"], truth
+                )
+                cleanup = loader.destroy_instance(loaded)
+                destroyed = cleanup["status"] == "PASS"
+                repo_root = Path(__file__).resolve().parents[2]
+                execution = ExecutionRecord(
+                    execution_id=new_execution_id(),
+                    benchmark_id="census",
+                    stage="collect_truth",
+                    status="PASS" if truth_report.status == "PASS" and destroyed else "FAIL",
+                    repository_commit=repository_commit(repo_root),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    input_artifacts=(workload_artifact.id,),
+                    output_artifacts=(truth_result["output_artifacts"][0].id,),
+                    message="Census truth collection completed",
+                    metadata={
+                        "workload_artifact_id": workload_artifact.id,
+                        "postgres_version": loaded.metadata.get("postgres_version"),
+                        "query_runner": runner.__class__.__name__,
+                        "query_count": truth.query_count,
+                        "successful_queries": truth.successful_queries,
+                    },
+                )
+                write_execution_record(execution, repo_root)
+                version = str(loaded.metadata.get("postgres_version", "unknown"))
+                version_parts = version.split()
+                display_version = version_parts[1] if len(version_parts) > 1 else version
+                truth_artifact = truth_result["output_artifacts"][0]
+                print("Benchmark: census")
+                print(f"Workload: {workload_artifact.id}")
+                print(f"Runner: {runner.__class__.__name__}")
+                print(f"PostgreSQL: {display_version}")
+                print(f"Queries: {truth.query_count}")
+                print(f"Truth: {truth_report.status}")
+                print(f"Truth artifact: {truth_artifact.path / 'truth.json'}")
+                print(f"Successful queries: {truth.successful_queries}")
+                return 0 if truth_report.status == "PASS" and destroyed else 1
+            finally:
+                if instance is not None and not destroyed:
+                    try:
+                        loader.destroy_instance(instance)
+                    except Exception:
+                        pass
+                runner.close()
+                loader.close()
         elif args.command == "validators":
             for validator_id in list_validators():
                 print(validator_id)

@@ -10,7 +10,7 @@ import pytest
 
 from pgextstats_benchmarks.artifacts import Artifact
 from pgextstats_benchmarks.census_adapter import CensusAdapter
-from pgextstats_benchmarks.census_validator import CensusValidator
+from pgextstats_benchmarks.census_validator import CensusValidator, CensusTruthValidator
 from pgextstats_benchmarks.instances import LoadedInstance
 from pgextstats_benchmarks.registry import load_manifest, load_registry
 from pgextstats_benchmarks.validator_registry import get_validator, list_validators
@@ -58,7 +58,7 @@ def make_loader_adapter(tmp_path: Path) -> tuple[CensusAdapter, dict[str, dict[s
     columns = [
         line.strip().split()[0].strip('"').rstrip(",")
         for line in (REPO / "benchmarks/census/schema/schema.sql").read_text().splitlines()
-        if line.strip().startswith('"')
+        if len(line.strip().split()) >= 2 and line.strip().split()[1].startswith("integer")
     ]
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -92,6 +92,7 @@ def test_census_manifest_and_registration():
     assert "census" in list_adapters()
     assert get_validator("census-validator") is CensusValidator
     assert "census-validator" in list_validators()
+    assert get_validator("census-truth-validator") is CensusTruthValidator
 
 
 def test_cli_benchmarks_lists_census(capsys):
