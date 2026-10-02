@@ -722,11 +722,19 @@ def main(argv=None) -> int:
                 print(f"Benchmark: {result.benchmark.id}")
                 print(f"Directory: {'PASS' if result.directory_exists else 'FAIL'}")
                 print(f"Manifest: {'PASS' if result.manifest_exists else 'FAIL'}")
-                print(
-                    "Source declaration: "
-                    f"{'PASS' if result.source_manifest_exists else 'FAIL'}"
-                )
-                print(f"Raw data: {'PRESENT' if result.raw_data_present else 'NOT PRESENT'}")
+                if result.source_manifest_exists:
+                    source_label = "PASS" if result.source_declaration_valid else "FAIL"
+                    print(f"Source declaration: {source_label} ({result.source_declaration_status})")
+                else:
+                    print("Source declaration: FAIL")
+                if result.artifact_declarations_present:
+                    print(f"Raw artifact: {result.raw_artifact_status}")
+                    print(f"Prepared artifact: {result.prepared_artifact_status}")
+                    print(f"Workload artifact: {result.workload_artifact_status}")
+                else:
+                    # Preserve the legacy placeholder output for benchmarks
+                    # that do not yet declare materialized artifacts.
+                    print(f"Raw data: {'PRESENT' if result.raw_data_present else 'NOT PRESENT'}")
                 print(f"Status: {result.status}")
                 if result.configuration_missing:
                     return 1
