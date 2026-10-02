@@ -44,6 +44,10 @@ plugin; no PostgreSQL details enter the core models.
   descriptive q-error metrics, lineage, and the canonical digest.
 - `evaluation_storage.py` writes only small JSON artifacts below the external
   benchmark data root. It never starts a database or runs a workload.
+- `experiment.py` proves comparability for an explicit set of evaluation
+  artifacts; `comparison.py` derives descriptive baseline-relative deltas.
+  Their validators recompute digests and report content. Neither module ranks,
+  selects, or recommends configurations.
 - `executor.py` coordinates manifest, adapter, loader, and validator contracts.
   It does not invoke shells, databases, or cleanup operations.
 - `cli.py` is the user-facing inspection and demonstration layer. `fetch.py`,
@@ -74,6 +78,8 @@ Artifacts    Instances      Validation reports
     StatisticsConfiguration -> EstimateArtifact
         + TruthArtifact
         -> EvaluationArtifact
+        -> ExperimentRunArtifact
+        -> ComparisonReport
 ```
 
 The core models—`Artifact`, `Lineage`, `ExecutionRecord`, `LoadedInstance`,
@@ -85,6 +91,12 @@ to decode its payload.
 consume already-produced truth and estimate artifacts and never depend on
 PostgreSQL or the advisor repository. Evaluation metrics are descriptive and
 cannot select or rank configurations.
+`ExperimentRunArtifact` is the single controlled comparability boundary. It
+requires explicit sample/repository/PostgreSQL provenance and an explicit
+baseline. `ComparisonReport` compares q-error rows to that baseline using
+exact delta/ratio semantics; its output is descriptive and has no ranking or
+recommendation meaning. Future robustness across multiple runs belongs to a
+separate `StudyArtifact` layer.
 The executor is the orchestration boundary: it resolves a manifest, selects an
 explicit implementation, and passes model objects between contracts.
 

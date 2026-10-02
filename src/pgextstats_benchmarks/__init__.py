@@ -34,6 +34,10 @@ from .evaluation import (
     evaluate_artifacts,
 )
 from .evaluation_validator import EvaluationArtifactValidator
+from .experiment import ExperimentEntry, ExperimentEvaluationEntry, ExperimentRunArtifact
+from .experiment_validator import ExperimentRunArtifactValidator
+from .comparison import ComparisonReport, ConfigurationSummary, QueryComparison
+from .comparison_validator import ComparisonReportValidator
 
 # Importing these modules performs the explicit toy registrations. There is
 # no dynamic discovery; the example implementations are the only built-ins.
@@ -94,6 +98,14 @@ __all__ = [
     "truth_digest",
     "evaluate",
     "evaluate_artifacts",
+    "ExperimentEntry",
+    "ExperimentEvaluationEntry",
+    "ExperimentRunArtifact",
+    "ExperimentRunArtifactValidator",
+    "ComparisonReport",
+    "ConfigurationSummary",
+    "QueryComparison",
+    "ComparisonReportValidator",
     "workload_digest",
     "PostgreSQLAnalyzeSampleProvider",
     "SampleReplayResult",

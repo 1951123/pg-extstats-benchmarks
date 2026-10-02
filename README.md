@@ -30,6 +30,8 @@ benchmark manifest
         -> EstimateArtifact
         + TruthArtifact
         -> EvaluationArtifact
+        -> ExperimentRunArtifact
+        -> ComparisonReport
 ```
 
 The framework currently demonstrates this lifecycle with the in-memory
@@ -62,6 +64,8 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench configuration-validate example repository-id configuration.json
 .venv/bin/pgextbench estimate-collect example workload-id repository-id configuration.json --database pgextbench_example
 .venv/bin/pgextbench evaluate census census-truth-v1 census-estimate-v1
+.venv/bin/pgextbench experiment-create census --baseline census-evaluation-empty census-evaluation-empty census-evaluation-a
+.venv/bin/pgextbench comparison-report census census-experiment-census-evaluation-empty
 .venv/bin/python -m pytest
 ```
 
@@ -122,6 +126,15 @@ connect to PostgreSQL, execute queries, activate statistics, rank
 configurations, or make recommendations. See
 [`docs/evaluation-artifacts.md`](docs/evaluation-artifacts.md) for the exact
 status, q-error, percentile, digest, and reproducibility contracts.
+
+`experiment-create` groups explicitly supplied EvaluationArtifacts after
+checking their workload, truth, sample, repository, PostgreSQL source, and
+statistics-target provenance. The baseline is supplied explicitly. It never
+infers a baseline or chooses a configuration. `comparison-report` computes
+descriptive per-configuration and baseline-relative observations, preserving
+status mismatches and never ranking or recommending configurations. See
+[`docs/experiment-runs.md`](docs/experiment-runs.md) and
+[`docs/comparison-reports.md`](docs/comparison-reports.md).
 
 ## Definitions and external data
 

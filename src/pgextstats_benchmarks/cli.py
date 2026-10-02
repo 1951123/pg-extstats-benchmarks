@@ -25,11 +25,25 @@ from .estimate_validator import EstimateArtifactValidator
 from .evaluation import ArtifactEvaluator, truth_digest
 from .evaluation_storage import (
     allocate_evaluation_artifact_dir,
+    load_evaluation_artifact,
     write_evaluation_artifact,
 )
 from .evaluation_validator import EvaluationArtifactValidator
 from .estimate_storage import load_estimate_artifact
 from .truth_storage import load_truth_artifact
+from .experiment import ExperimentRunArtifact
+from .experiment_storage import (
+    allocate_experiment_artifact_dir,
+    load_experiment_artifact,
+    write_experiment_artifact,
+)
+from .experiment_validator import ExperimentRunArtifactValidator
+from .comparison import ComparisonReport
+from .comparison_storage import (
+    allocate_comparison_report_dir,
+    write_comparison_report,
+)
+from .comparison_validator import ComparisonReportValidator
 from .statistics_storage import load_repository_artifact
 from .workload_executor import load_workload_artifact
 from .postgres.statistics_provider import PostgreSQLStatisticsRepositoryProvider
@@ -80,6 +94,13 @@ def main(argv=None) -> int:
     evaluate.add_argument("benchmark")
     evaluate.add_argument("truth_artifact")
     evaluate.add_argument("estimate_artifact")
+    experiment_create = commands.add_parser("experiment-create")
+    experiment_create.add_argument("benchmark")
+    experiment_create.add_argument("--baseline", required=True)
+    experiment_create.add_argument("evaluation_artifacts", nargs="+")
+    comparison_report = commands.add_parser("comparison-report")
+    comparison_report.add_argument("benchmark")
+    comparison_report.add_argument("experiment_artifact")
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -553,6 +574,121 @@ def main(argv=None) -> int:
             print(f"Execution record: {execution_path}")
             print(f"Status: {report.status}")
             return 0 if report.status == "PASS" else 1
+        elif args.command == "experiment-create":
+            root = benchmark_data_root()
+            evaluations = tuple(
+                load_evaluation_artifact(args.benchmark, artifact_id, root)
+                for artifact_id in args.evaluation_artifacts
+            )
+            repositories = {
+                evaluation.repository_artifact_id: load_repository_artifact(
+                    args.benchmark, evaluation.repository_artifact_id, root
+                )
+                for evaluation in evaluations
+            }
+            experiment_id = f"{args.benchmark}-experiment-{args.baseline}"
+            labels = {evaluation.artifact_id: evaluation.artifact_id for evaluation in evaluations}
+            experiment = ExperimentRunArtifact.from_evaluations(
+                experiment_id=experiment_id,
+                evaluations=evaluations,
+                repositories=repositories,
+                baseline_label=args.baseline,
+                labels=labels,
+            )
+            validation = ExperimentRunArtifactValidator().validate(
+                experiment, evaluations=evaluations, repositories=repositories,
+            )
+            if validation.status != "PASS":
+                raise ValueError("experiment comparability validation failed")
+            directory = allocate_experiment_artifact_dir(args.benchmark, experiment.experiment_id, root)
+            write_experiment_artifact(experiment, root)
+            repo_root = Path(__file__).resolve().parents[2]
+            execution = ExecutionRecord(
+                execution_id=new_execution_id(), benchmark_id=args.benchmark,
+                stage="experiment_run_create", operation="experiment_run_create", status="PASS",
+                repository_commit=repository_commit(repo_root), timestamp=datetime.now(timezone.utc).isoformat(),
+                input_artifacts=tuple(item.artifact_id for item in evaluations),
+                output_artifacts=(experiment.experiment_id,), message="Experiment run artifact created",
+                metadata={
+                    "workload_id": experiment.workload_id,
+                    "workload_digest": experiment.workload_digest,
+                    "truth_digest": experiment.truth_digest,
+                    "sample_artifact_id": experiment.sample_artifact_id,
+                    "sample_payload_sha256": experiment.sample_payload_sha256,
+                    "statistics_repository_digest": experiment.statistics_repository_digest,
+                    "postgres_source_commit": experiment.postgres_source["source_commit"],
+                    "configuration_count": len(experiment.evaluations),
+                    "baseline_configuration_id": experiment.baseline_configuration_id,
+                    "experiment_digest": experiment.experiment_digest,
+                },
+            )
+            execution_path = write_execution_record(execution, repo_root)
+            print(f"Benchmark: {experiment.benchmark_id}")
+            print(f"Workload: {experiment.workload_id}")
+            print(f"Truth digest: {experiment.truth_digest}")
+            print(f"Sample artifact: {experiment.sample_artifact_id}")
+            print(f"Repository artifact: {experiment.statistics_repository_artifact_id}")
+            print(f"PostgreSQL source commit: {experiment.postgres_source['source_commit']}")
+            print(f"Baseline configuration: {experiment.baseline_configuration_id}")
+            print(f"Configuration count: {len(experiment.evaluations)}")
+            print(f"Experiment artifact: {experiment.experiment_id}")
+            print(f"Experiment digest: {experiment.experiment_digest}")
+            print(f"Artifact directory: {directory}")
+            print(f"Execution record: {execution_path}")
+            return 0
+        elif args.command == "comparison-report":
+            root = benchmark_data_root()
+            experiment = load_experiment_artifact(args.benchmark, args.experiment_artifact, root)
+            evaluations = tuple(
+                load_evaluation_artifact(args.benchmark, entry.evaluation_artifact_id, root)
+                for entry in experiment.evaluations
+            )
+            report_id = f"{experiment.experiment_id}-comparison"
+            report = ComparisonReport.create(
+                report_id=report_id, experiment=experiment, evaluations=evaluations,
+            )
+            validation = ComparisonReportValidator().validate(
+                report, experiment=experiment, evaluations=evaluations,
+            )
+            if validation.status != "PASS":
+                raise ValueError("comparison report validation failed")
+            directory = allocate_comparison_report_dir(args.benchmark, report.report_id, root)
+            write_comparison_report(report, args.benchmark, root)
+            repo_root = Path(__file__).resolve().parents[2]
+            execution = ExecutionRecord(
+                execution_id=new_execution_id(), benchmark_id=args.benchmark,
+                stage="comparison_report_create", operation="comparison_report_create", status="PASS",
+                repository_commit=repository_commit(repo_root), timestamp=datetime.now(timezone.utc).isoformat(),
+                input_artifacts=(experiment.experiment_id,), output_artifacts=(report.report_id,),
+                message="Descriptive comparison report created",
+                metadata={
+                    "experiment_digest": report.experiment_digest,
+                    "configuration_count": len(report.configuration_summaries),
+                    "baseline_configuration_id": report.baseline_configuration_id,
+                    "report_digest": report.report_digest,
+                },
+            )
+            execution_path = write_execution_record(execution, repo_root)
+            print(f"Experiment: {report.experiment_id}")
+            print(f"Baseline configuration: {report.baseline_configuration_id}")
+            for summary in report.configuration_summaries:
+                metrics = summary.qerror_metrics
+                comparison = summary.baseline_comparison
+                print(f"Configuration: {summary.configuration_id}")
+                print(f"  Mean q-error: {metrics.get('mean_q_error')}")
+                print(f"  Median q-error: {metrics.get('median_q_error')}")
+                print(f"  P90 q-error: {metrics.get('p90_q_error')}")
+                print(f"  P95 q-error: {metrics.get('p95_q_error')}")
+                print(f"  Max q-error: {metrics.get('max_q_error')}")
+                print(f"  Comparable queries: {comparison.get('comparable_query_count')}")
+                print(f"  Improved: {comparison.get('improved_query_count')}")
+                print(f"  Unchanged: {comparison.get('unchanged_query_count')}")
+                print(f"  Worsened: {comparison.get('worsened_query_count')}")
+            print(f"Report artifact: {report.report_id}")
+            print(f"Report digest: {report.report_digest}")
+            print(f"Artifact directory: {directory}")
+            print(f"Execution record: {execution_path}")
+            return 0
         elif args.command == "validators":
             for validator_id in list_validators():
                 print(validator_id)
