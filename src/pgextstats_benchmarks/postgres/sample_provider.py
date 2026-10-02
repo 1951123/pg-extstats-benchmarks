@@ -166,9 +166,9 @@ class PostgreSQLAnalyzeSampleProvider:
             if setting and setting[0] and isinstance(setting[0][0], str):
                 previous_client_min_messages = setting[0][0]
             self._reset_modes(target)
-            # ANALYZE reports the sample count at INFO; debug1 is the lowest
-            # accepted client_min_messages level that also forwards INFO.
-            target.set_config("client_min_messages", "debug1")
+            # Non-verbose ANALYZE reports the sample count at DEBUG2;
+            # debug5 is the lowest accepted threshold and forwards it.
+            target.set_config("client_min_messages", "debug5")
             target.set_config(EXPORT_GUC, str(payload))
             clear_notices = getattr(target, "clear_notices", None)
             if callable(clear_notices):
