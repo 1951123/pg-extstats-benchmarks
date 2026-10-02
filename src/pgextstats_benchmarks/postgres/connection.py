@@ -16,6 +16,7 @@ from typing import Any, Iterable, Mapping, Sequence
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DATABASE_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _MANAGED_PREFIX = "pgextbench_"
+_MANAGED_STATISTICS_PREFIX = "pgextbench_stat_"
 _RESERVED_DATABASES = frozenset({"postgres", "template0", "template1"})
 
 
@@ -197,6 +198,93 @@ class PostgresConnection:
 
         psycopg = _driver()
         self.execute(psycopg.sql.SQL("ANALYZE {};").format(self.quote_relation(relation_identity)))
+
+    def set_default_statistics_target(self, target: int) -> None:
+        if not isinstance(target, int) or target <= 0:
+            raise ValueError("statistics target must be positive")
+        self.set_config("default_statistics_target", str(target))
+
+    def create_statistics(
+        self, schema: str, name: str, kind: str, columns: Sequence[str], relation_identity: str
+    ) -> None:
+        schema = _validate_identifier(schema, "statistics schema")
+        name = _validate_identifier(name, "statistics name")
+        if not name.startswith(_MANAGED_STATISTICS_PREFIX):
+            raise ValueError("statistics name is not experiment-managed")
+        if kind not in {"mcv", "fd"}:
+            raise ValueError("statistics kind must be mcv or fd")
+        columns = tuple(_validate_identifier(column, "statistics column") for column in columns)
+        if len(columns) < 2:
+            raise ValueError("statistics requires at least two columns")
+        relation = self.quote_relation(relation_identity)
+        psycopg = _driver()
+        postgres_kind = "dependencies" if kind == "fd" else kind
+        statement = psycopg.sql.SQL("CREATE STATISTICS {}.{} ({}) ON {} FROM {}").format(
+            psycopg.sql.Identifier(schema), psycopg.sql.Identifier(name), psycopg.sql.SQL(postgres_kind),
+            psycopg.sql.SQL(", ").join(psycopg.sql.Identifier(column) for column in columns), relation,
+        )
+        self.execute(statement)
+
+    def statistics_object(self, schema: str, name: str) -> tuple[Any, ...] | None:
+        schema = _validate_identifier(schema, "statistics schema")
+        name = _validate_identifier(name, "statistics name")
+        rows = self.execute(
+            "SELECT e.oid, e.stxrelid, e.stxkind, e.stxname FROM pg_catalog.pg_statistic_ext e "
+            "JOIN pg_catalog.pg_namespace n ON n.oid=e.stxnamespace "
+            "WHERE n.nspname=%s AND e.stxname=%s", (schema, name)
+        )
+        return rows[0] if rows else None
+
+    def set_statistics_target(self, schema: str, name: str, target: int) -> None:
+        schema = _validate_identifier(schema, "statistics schema")
+        name = _validate_identifier(name, "statistics name")
+        if not name.startswith(_MANAGED_STATISTICS_PREFIX):
+            raise ValueError("statistics name is not experiment-managed")
+        if not isinstance(target, int) or target <= 0:
+            raise ValueError("statistics target must be positive")
+        psycopg = _driver()
+        self.execute(
+            psycopg.sql.SQL("ALTER STATISTICS {}.{} SET STATISTICS {}").format(
+                psycopg.sql.Identifier(schema), psycopg.sql.Identifier(name), psycopg.sql.Literal(target)
+            )
+        )
+
+    def native_statistics_payload(self, schema: str, name: str, kind: str) -> tuple[Any, ...] | None:
+        schema = _validate_identifier(schema, "statistics schema")
+        name = _validate_identifier(name, "statistics name")
+        if kind not in {"mcv", "fd"}:
+            raise ValueError("statistics kind must be mcv or fd")
+        expression = "pg_mcv_list_send(d.stxdmcv)" if kind == "mcv" else "pg_dependencies_send(d.stxddependencies)"
+        rows = self.execute(
+            f"SELECT {expression}, e.oid, e.stxrelid, e.stxkind FROM pg_catalog.pg_statistic_ext e "
+            "JOIN pg_catalog.pg_namespace n ON n.oid=e.stxnamespace "
+            "LEFT JOIN pg_catalog.pg_statistic_ext_data d ON d.stxoid=e.oid "
+            "WHERE n.nspname=%s AND e.stxname=%s", (schema, name)
+        )
+        return rows[0] if rows else None
+
+    def ordinary_statistics(self, relation_identity: str) -> list[tuple[Any, ...]]:
+        parts = relation_identity.split(".") if isinstance(relation_identity, str) else []
+        if len(parts) != 2 or any(not _IDENTIFIER.fullmatch(part) for part in parts):
+            raise ValueError("relation identity must be schema.relation")
+        return self.execute(
+            "SELECT attname, null_frac, avg_width, n_distinct, most_common_vals::text, "
+            "most_common_freqs::text, histogram_bounds::text, correlation "
+            "FROM pg_catalog.pg_stats WHERE schemaname=%s AND tablename=%s ORDER BY attname",
+            (parts[0], parts[1]),
+        )
+
+    def drop_statistics(self, schema: str, name: str) -> None:
+        schema = _validate_identifier(schema, "statistics schema")
+        name = _validate_identifier(name, "statistics name")
+        if not name.startswith(_MANAGED_STATISTICS_PREFIX):
+            raise ValueError("refusing to drop non-managed statistics")
+        psycopg = _driver()
+        self.execute(
+            psycopg.sql.SQL("DROP STATISTICS IF EXISTS {}.{}").format(
+                psycopg.sql.Identifier(schema), psycopg.sql.Identifier(name)
+            )
+        )
 
     def relation_metadata(self, relation_identity: str) -> list[tuple[Any, ...]]:
         """Read stable relation/column metadata for a provenance fingerprint."""

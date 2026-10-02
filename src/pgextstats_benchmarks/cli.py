@@ -5,6 +5,7 @@ import sys
 import yaml
 from .paths import benchmark_data_root
 from .registry import load_registry, verify_benchmark
+from .adapters import get_adapter
 from .executor import load_artifact, run_stage, validate_instance
 from .instances import LoadedInstance
 from .loader_registry import get_loader, list_loaders
@@ -15,6 +16,9 @@ from .census_validator import CensusTruthValidator
 from .postgres.query_runner import PostgreSQLQueryRunner
 from .postgres.sample_provider import PostgreSQLAnalyzeSampleProvider
 from .sample_storage import load_sample_manifest
+from .candidate_catalog import CandidateCatalog
+from .statistics_repository_validator import StatisticsRepositoryValidator
+from .postgres.statistics_provider import PostgreSQLStatisticsRepositoryProvider
 from .execution import ExecutionRecord, new_execution_id, repository_commit, write_execution_record
 from datetime import datetime, timezone
 
@@ -42,6 +46,10 @@ def main(argv=None) -> int:
     sample_replay = commands.add_parser("sample-replay")
     sample_replay.add_argument("benchmark")
     sample_replay.add_argument("sample_artifact")
+    statistics = commands.add_parser("statistics-acquire")
+    statistics.add_argument("benchmark")
+    statistics.add_argument("sample_artifact")
+    statistics.add_argument("candidate_catalog", type=Path)
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -297,6 +305,84 @@ def main(argv=None) -> int:
                 print(f"Execution record: {record_path}")
                 print(f"Cleanup: {cleanup['status']}")
                 return 0 if replay.status == "PASS" and destroyed else 1
+            finally:
+                if instance is not None and not destroyed:
+                    try:
+                        loader.destroy_instance(instance)
+                    except Exception:
+                        pass
+                loader.close()
+        elif args.command == "statistics-acquire":
+            if not args.benchmark:
+                raise ValueError("statistics-acquire requires a benchmark")
+            root = benchmark_data_root()
+            sample = load_sample_manifest(args.benchmark, args.sample_artifact, root)
+            catalog = CandidateCatalog.from_file(args.candidate_catalog)
+            if catalog.relation_identity != sample.relation_identity:
+                raise ValueError("candidate catalog relation does not match SampleArtifact")
+            adapter_class = get_adapter(args.benchmark)
+            prepared_result = adapter_class().prepare()
+            prepared = prepared_result["output_artifacts"][0]
+            loader = get_loader("postgres")()
+            provider = PostgreSQLStatisticsRepositoryProvider()
+            instance = None
+            destroyed = False
+            repo_root = Path(__file__).resolve().parents[2]
+            try:
+                instance = loader.create_instance(args.benchmark)
+                loaded = loader.load_artifact(instance, prepared)
+                if loader.validate_instance(loaded)["status"] != "PASS":
+                    raise RuntimeError("managed benchmark instance validation failed")
+                result = provider.acquire_repository(
+                    loaded, sample, catalog, benchmark_id=args.benchmark, root=root
+                )
+                if result["status"] != "PASS":
+                    print(f"Benchmark: {args.benchmark}")
+                    print(f"Status: FAIL")
+                    print(f"Message: {result['message']}")
+                    return 1
+                artifact = result["artifact"]
+                report = StatisticsRepositoryValidator().validate(
+                    artifact, sample_artifact=sample, candidate_catalog=catalog, root=root
+                )
+                cleanup = loader.destroy_instance(loaded)
+                destroyed = cleanup["status"] == "PASS"
+                execution = ExecutionRecord(
+                    execution_id=new_execution_id(), benchmark_id=args.benchmark,
+                    stage="statistics_repository_acquire", operation="statistics_repository_acquire",
+                    status="PASS" if report.status == "PASS" and destroyed else "FAIL",
+                    repository_commit=repository_commit(repo_root),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    input_artifacts=(sample.artifact_id, catalog.catalog_id),
+                    output_artifacts=(artifact.artifact_id,),
+                    message=result["message"],
+                    metadata={
+                        "sample_payload_sha256": artifact.sample_payload_sha256,
+                        "catalog_sha256": catalog.catalog_sha256,
+                        "candidate_count": catalog.candidate_count,
+                        "present_count": result["present_count"],
+                        "absent_native_count": result["absent_native_count"],
+                        "postgres_source_commit": artifact.postgres_source["source_commit"],
+                        "statistics_target": artifact.statistics_target,
+                        "repository_digest": artifact.repository_digest,
+                    },
+                )
+                execution_path = write_execution_record(execution, repo_root)
+                print(f"Benchmark: {args.benchmark}")
+                print(f"Relation: {artifact.relation_identity}")
+                print(f"SampleArtifact: {artifact.sample_artifact_id}")
+                print(f"Candidate catalog SHA256: {catalog.catalog_sha256}")
+                print(f"Candidate count: {catalog.candidate_count}")
+                print(f"PRESENT: {result['present_count']}")
+                print(f"ABSENT_NATIVE: {result['absent_native_count']}")
+                print(f"Repository artifact: {artifact.artifact_id}")
+                print(f"Repository digest: {artifact.repository_digest}")
+                print(f"PostgreSQL source commit: {artifact.postgres_source['source_commit']}")
+                print(f"Import count: {result['sample_import_count']}")
+                print(f"ANALYZE count: {result['analyze_count']}")
+                print(f"Execution record: {execution_path}")
+                print(f"Status: {execution.status}")
+                return 0 if execution.status == "PASS" else 1
             finally:
                 if instance is not None and not destroyed:
                     try:

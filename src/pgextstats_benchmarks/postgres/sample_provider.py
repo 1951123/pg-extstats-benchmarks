@@ -131,6 +131,34 @@ class PostgreSQLAnalyzeSampleProvider:
             "binary_sha256": self.binary_sha256,
         }
 
+    def begin_sample_import(
+        self,
+        connection: PostgresConnection,
+        artifact: SampleArtifact,
+        relation_identity: str | None = None,
+        root: Path | None = None,
+    ) -> str:
+        """Enable import mode on an open session without running ANALYZE."""
+
+        payload = verify_sample_artifact(artifact, root)
+        relation = relation_identity or artifact.relation_identity
+        if relation != artifact.relation_identity:
+            raise ValueError("sample import relation does not match artifact identity")
+        if artifact.postgres_source.get("source_commit") != self.source_commit:
+            raise RuntimeError("sample artifact PostgreSQL source commit is incompatible")
+        self.capability_probe(connection)
+        version = connection.server_version()
+        if not version.startswith(f"PostgreSQL {SERVER_VERSION}"):
+            raise RuntimeError(f"unsupported PostgreSQL server version: {version}")
+        self._reset_modes(connection)
+        connection.set_config(IMPORT_GUC, str(payload))
+        return relation
+
+    def end_sample_import(self, connection: PostgresConnection) -> None:
+        """Reset both sample modes to the authoritative empty disabled value."""
+
+        self._reset_modes(connection)
+
     def capture_sample(
         self,
         instance: PostgresInstance,
@@ -247,13 +275,8 @@ class PostgreSQLAnalyzeSampleProvider:
         try:
             target.connect()
             connected = True
-            self.capability_probe(target)
+            self.begin_sample_import(target, artifact, relation, root)
             capability_ok = True
-            server_version = target.server_version()
-            if not server_version.startswith(f"PostgreSQL {SERVER_VERSION}"):
-                raise RuntimeError(f"unsupported PostgreSQL server version: {server_version}")
-            self._reset_modes(target)
-            target.set_config(IMPORT_GUC, str(payload))
             target.analyze(relation)
         finally:
             if connected and capability_ok:

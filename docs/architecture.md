@@ -29,6 +29,11 @@ plugin; no PostgreSQL details enter the core models.
   external benchmark data root.
 - `postgres/sample_provider.py` owns PostgreSQL GUC interaction, relation
   quoting, capability detection, ANALYZE orchestration, and source provenance.
+- `candidate_catalog.py` validates an explicit catalog input; it never creates
+  candidates. `statistics_repository.py` and `statistics_repository_validator.py`
+  model and validate native payload states. `postgres/statistics_provider.py`
+  creates managed definitions, imports a sample once, runs one ANALYZE, and
+  records opaque native payloads.
 - `executor.py` coordinates manifest, adapter, loader, and validator contracts.
   It does not invoke shells, databases, or cleanup operations.
 - `cli.py` is the user-facing inspection and demonstration layer. `fetch.py`,

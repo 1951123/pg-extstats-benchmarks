@@ -24,6 +24,8 @@ benchmark manifest
         -> validator
         -> validation report
         -> SampleArtifact (capture/replay)
+        -> CandidateCatalog
+        -> StatisticsRepositoryArtifact
 ```
 
 The framework currently demonstrates this lifecycle with the in-memory
@@ -96,6 +98,8 @@ database and asks the patched PostgreSQL provider to export one opaque
 loads the relation again and runs `ANALYZE` with that sample. Both commands
 validate the patched capability first and drop only their managed database.
 See [`docs/sample-artifacts.md`](docs/sample-artifacts.md) for the contract.
+The fixed-sample native statistics repository contract is documented in
+[`docs/statistics-repository-artifacts.md`](docs/statistics-repository-artifacts.md).
 
 ## Definitions and external data
 
