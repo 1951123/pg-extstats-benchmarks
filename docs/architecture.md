@@ -39,6 +39,11 @@ plugin; no PostgreSQL details enter the core models.
   backend session and switches exact active subsets. `estimate.py` and
   `postgres/estimate_provider.py` record `EXPLAIN (FORMAT JSON)` Plan Rows
   without physical statistics changes.
+- `evaluation.py` is a pure offline evaluator for one `TruthArtifact` and one
+  `EstimateArtifact`; `evaluation_validator.py` recomputes row coverage,
+  descriptive q-error metrics, lineage, and the canonical digest.
+- `evaluation_storage.py` writes only small JSON artifacts below the external
+  benchmark data root. It never starts a database or runs a workload.
 - `executor.py` coordinates manifest, adapter, loader, and validator contracts.
   It does not invoke shells, databases, or cleanup operations.
 - `cli.py` is the user-facing inspection and demonstration layer. `fetch.py`,
@@ -67,6 +72,8 @@ Artifacts    Instances      Validation reports
     CandidateCatalog -> StatisticsRepositoryArtifact
         ->
     StatisticsConfiguration -> EstimateArtifact
+        + TruthArtifact
+        -> EvaluationArtifact
 ```
 
 The core models—`Artifact`, `Lineage`, `ExecutionRecord`, `LoadedInstance`,
@@ -74,6 +81,10 @@ and `ValidationReport`—do not import the CLI, adapters, loaders, or any DBMS.
 `SampleArtifact` is also a core metadata model: it contains no SQL or binary
 parser; the PostgreSQL provider remains the only component that asks a server
 to decode its payload.
+`EvaluationArtifact` and `ArtifactEvaluator` are core/offline models: they
+consume already-produced truth and estimate artifacts and never depend on
+PostgreSQL or the advisor repository. Evaluation metrics are descriptive and
+cannot select or rank configurations.
 The executor is the orchestration boundary: it resolves a manifest, selects an
 explicit implementation, and passes model objects between contracts.
 

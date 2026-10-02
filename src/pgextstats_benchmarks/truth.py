@@ -38,6 +38,17 @@ class TruthArtifact:
     def successful_queries(self) -> int:
         return sum(result.status == "PASS" for result in self.query_results)
 
+    @property
+    def workload_digest(self) -> str | None:
+        """Optional semantic workload digest carried in artifact metadata.
+
+        Older truth JSON remains readable; new collectors include this value
+        so offline evaluation can enforce workload identity without changing
+        the established query-result shape.
+        """
+        value = self.metadata.get("workload_digest")
+        return value if isinstance(value, str) else None
+
     def to_dict(self) -> dict[str, Any]:
         value = {
             "benchmark_id": self.benchmark_id,

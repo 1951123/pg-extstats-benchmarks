@@ -17,6 +17,7 @@ from .registry import load_manifest, load_registry, read_mapping
 from .adapters import register_adapter
 from .workload_executor import load_workload_artifact, normalize_workload
 from .truth import TruthArtifact
+from .estimate import workload_digest
 
 
 class CensusAdapter(BenchmarkAdapter):
@@ -340,6 +341,7 @@ class CensusAdapter(BenchmarkAdapter):
                 "runner": runner.__class__.__name__,
                 "query_count": workload.query_count,
                 "successful_queries": sum(result.status == "PASS" for result in results),
+                "workload_digest": workload_digest(workload),
             },
         )
         truth_dir = self.artifacts_root / "census-truth-v1"

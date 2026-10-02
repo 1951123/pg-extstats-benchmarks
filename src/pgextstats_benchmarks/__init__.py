@@ -21,6 +21,19 @@ from .statistics_configuration import StatisticsConfiguration
 from .statistics_configuration_validator import StatisticsConfigurationValidator
 from .estimate import EstimateArtifact, QueryEstimate, workload_digest
 from .estimate_validator import EstimateArtifactValidator
+from .evaluation import (
+    ArtifactEvaluator,
+    CardinalityEvaluationProvider,
+    EvaluationArtifact,
+    QueryEvaluation,
+    aggregate_q_errors,
+    nearest_rank,
+    q_error,
+    truth_digest,
+    evaluate,
+    evaluate_artifacts,
+)
+from .evaluation_validator import EvaluationArtifactValidator
 
 # Importing these modules performs the explicit toy registrations. There is
 # no dynamic discovery; the example implementations are the only built-ins.
@@ -70,6 +83,17 @@ __all__ = [
     "EstimateArtifact",
     "QueryEstimate",
     "EstimateArtifactValidator",
+    "EvaluationArtifact",
+    "QueryEvaluation",
+    "ArtifactEvaluator",
+    "CardinalityEvaluationProvider",
+    "EvaluationArtifactValidator",
+    "aggregate_q_errors",
+    "nearest_rank",
+    "q_error",
+    "truth_digest",
+    "evaluate",
+    "evaluate_artifacts",
     "workload_digest",
     "PostgreSQLAnalyzeSampleProvider",
     "SampleReplayResult",

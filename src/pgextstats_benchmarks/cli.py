@@ -22,6 +22,14 @@ from .statistics_repository_validator import StatisticsRepositoryValidator
 from .statistics_configuration import StatisticsConfiguration
 from .statistics_configuration_validator import StatisticsConfigurationValidator
 from .estimate_validator import EstimateArtifactValidator
+from .evaluation import ArtifactEvaluator, truth_digest
+from .evaluation_storage import (
+    allocate_evaluation_artifact_dir,
+    write_evaluation_artifact,
+)
+from .evaluation_validator import EvaluationArtifactValidator
+from .estimate_storage import load_estimate_artifact
+from .truth_storage import load_truth_artifact
 from .statistics_storage import load_repository_artifact
 from .workload_executor import load_workload_artifact
 from .postgres.statistics_provider import PostgreSQLStatisticsRepositoryProvider
@@ -68,6 +76,10 @@ def main(argv=None) -> int:
     estimate.add_argument("repository_artifact")
     estimate.add_argument("configuration", type=Path)
     estimate.add_argument("--database", default=os.environ.get("PGEXTBENCH_DATABASE"))
+    evaluate = commands.add_parser("evaluate")
+    evaluate.add_argument("benchmark")
+    evaluate.add_argument("truth_artifact")
+    evaluate.add_argument("estimate_artifact")
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -477,6 +489,70 @@ def main(argv=None) -> int:
                 return 0 if execution.status == "PASS" else 1
             finally:
                 provider.close()
+        elif args.command == "evaluate":
+            root = benchmark_data_root()
+            truth = load_truth_artifact(args.benchmark, args.truth_artifact, root)
+            estimate_artifact = load_estimate_artifact(args.benchmark, args.estimate_artifact, root)
+            artifact_id = f"evaluation-{args.truth_artifact}-{args.estimate_artifact}"
+            evaluator = ArtifactEvaluator()
+            evaluation = evaluator.evaluate(
+                truth,
+                estimate_artifact,
+                truth_artifact_id=args.truth_artifact,
+                truth_digest_value=truth_digest(truth),
+                artifact_id=artifact_id,
+            )
+            directory = allocate_evaluation_artifact_dir(args.benchmark, evaluation.artifact_id, root)
+            write_evaluation_artifact(evaluation, root)
+            report = EvaluationArtifactValidator().validate(
+                evaluation, truth=truth, estimate=estimate_artifact,
+            )
+            repo_root = Path(__file__).resolve().parents[2]
+            execution = ExecutionRecord(
+                execution_id=new_execution_id(), benchmark_id=args.benchmark,
+                stage="evaluation_compute", operation="evaluation_compute",
+                status=report.status,
+                repository_commit=repository_commit(repo_root),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                input_artifacts=(args.truth_artifact, args.estimate_artifact),
+                output_artifacts=(evaluation.artifact_id,),
+                message="Offline truth-versus-estimate evaluation completed",
+                metadata={
+                    "workload_id": evaluation.workload_id,
+                    "workload_digest": evaluation.workload_digest,
+                    "truth_artifact_id": evaluation.truth_artifact_id,
+                    "truth_digest": evaluation.truth_digest,
+                    "estimate_artifact_id": evaluation.estimate_artifact_id,
+                    "estimate_digest": evaluation.estimate_digest,
+                    "repository_artifact_id": evaluation.repository_artifact_id,
+                    "repository_digest": evaluation.repository_digest,
+                    "configuration_id": evaluation.configuration_id,
+                    "configuration_digest": evaluation.configuration_digest,
+                    "successful_count": evaluation.successful_count,
+                    "excluded_count": evaluation.excluded_count,
+                    "failed_count": evaluation.failed_count,
+                    "evaluation_digest": evaluation.evaluation_digest,
+                },
+            )
+            execution_path = write_execution_record(execution, repo_root)
+            metrics = evaluation.aggregate_metrics
+            print(f"Benchmark: {evaluation.benchmark_id}")
+            print(f"Workload: {evaluation.workload_id}")
+            print(f"Configuration: {evaluation.configuration_id}")
+            print(f"PASS: {evaluation.successful_count}")
+            print(f"EXCLUDED: {evaluation.excluded_count}")
+            print(f"ERROR: {evaluation.failed_count}")
+            print(f"Mean q-error: {metrics['mean_q_error']}")
+            print(f"Median q-error: {metrics['median_q_error']}")
+            print(f"P90 q-error: {metrics['p90_q_error']}")
+            print(f"P95 q-error: {metrics['p95_q_error']}")
+            print(f"Max q-error: {metrics['max_q_error']}")
+            print(f"Evaluation artifact: {evaluation.artifact_id}")
+            print(f"Evaluation digest: {evaluation.evaluation_digest}")
+            print(f"Artifact directory: {directory}")
+            print(f"Execution record: {execution_path}")
+            print(f"Status: {report.status}")
+            return 0 if report.status == "PASS" else 1
         elif args.command == "validators":
             for validator_id in list_validators():
                 print(validator_id)

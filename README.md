@@ -28,6 +28,8 @@ benchmark manifest
         -> StatisticsRepositoryArtifact
         -> StatisticsConfiguration
         -> EstimateArtifact
+        + TruthArtifact
+        -> EvaluationArtifact
 ```
 
 The framework currently demonstrates this lifecycle with the in-memory
@@ -59,6 +61,7 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench sample-replay census census-sample-v1
 .venv/bin/pgextbench configuration-validate example repository-id configuration.json
 .venv/bin/pgextbench estimate-collect example workload-id repository-id configuration.json --database pgextbench_example
+.venv/bin/pgextbench evaluate census census-truth-v1 census-estimate-v1
 .venv/bin/python -m pytest
 ```
 
@@ -111,6 +114,14 @@ Configuration and native planner observations are documented in
 prepared during repository acquisition; its provider only registers opaque
 payloads, activates the requested subset, runs `EXPLAIN (FORMAT JSON)`, and
 resets the subset.
+
+`evaluate` is a pure offline comparison of one existing truth artifact and one
+existing estimate artifact. It reports descriptive q-error metrics and writes
+an `EvaluationArtifact` below the external benchmark data root; it does not
+connect to PostgreSQL, execute queries, activate statistics, rank
+configurations, or make recommendations. See
+[`docs/evaluation-artifacts.md`](docs/evaluation-artifacts.md) for the exact
+status, q-error, percentile, digest, and reproducibility contracts.
 
 ## Definitions and external data
 
