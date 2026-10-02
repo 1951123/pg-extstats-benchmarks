@@ -1,11 +1,11 @@
 # pg-extstats-benchmarks
 
 Reusable infrastructure for external benchmark ingestion and provenance.
-The planned lifecycle is fetch → immutable raw data → deterministic preparation
-→ loading → validation → workload normalization → truth collection.
-The framework includes a local toy adapter for exercising lifecycle execution.
-DMV and Census remain placeholders; no URLs, transformations, loaders, or
-cleanup are supplied for them.
+The lifecycle is fetch → immutable raw data → deterministic preparation
+→ loading → validation → workload normalization → truth collection → fixed
+PostgreSQL ANALYZE sample capture/replay.
+The framework includes local toy and Census metadata adapters. Generated data
+and sample payloads remain external to Git.
 The stable metadata contract is documented in
 [`docs/benchmark-manifest-v1.md`](docs/benchmark-manifest-v1.md), and concrete
 benchmark implementations will conform to the six-stage
@@ -23,6 +23,7 @@ benchmark manifest
         -> loaded instance
         -> validator
         -> validation report
+        -> SampleArtifact (capture/replay)
 ```
 
 The framework currently demonstrates this lifecycle with the in-memory
@@ -50,6 +51,8 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench validate-example
 .venv/bin/pgextbench postgres-check
 .venv/bin/pgextbench load-example-postgres
+.venv/bin/pgextbench sample-capture census
+.venv/bin/pgextbench sample-replay census census-sample-v1
 .venv/bin/python -m pytest
 ```
 
@@ -60,9 +63,10 @@ raw-data presence. It distinguishes incomplete data from missing configuration
 and never connects to a database. Missing/invalid configuration produces a
 nonzero exit status.
 
-`run example --stage STAGE` executes only the in-memory toy adapter. Valid
-stages are `fetch`, `prepare`, `load`, `validate`, `normalize_workload`, and
-`collect_truth`; real benchmark adapters are not registered yet. Adding
+`run example --stage STAGE` executes the in-memory toy adapter. Valid stages
+are `fetch`, `prepare`, `load`, `validate`, `normalize_workload`, and
+`collect_truth`; the Census adapter additionally owns external source and
+workload metadata stages. Adding
 `--record` writes one JSON execution record under the repository-local `runs/`
 directory, including artifact IDs and the repository commit.
 
@@ -85,6 +89,13 @@ The checked-in example prepared artifact is under
 and a schema for `example_table`. `load-example-postgres` creates a managed
 database, loads that artifact, validates the table and row count, records
 loader provenance, and drops the managed database.
+
+`sample-capture census` loads the prepared Census relation into a managed
+database and asks the patched PostgreSQL provider to export one opaque
+`PGEXTSC1` sample into `$PGEXTADV_BENCHMARK_DATA`. `sample-replay census ID`
+loads the relation again and runs `ANALYZE` with that sample. Both commands
+validate the patched capability first and drop only their managed database.
+See [`docs/sample-artifacts.md`](docs/sample-artifacts.md) for the contract.
 
 ## Definitions and external data
 

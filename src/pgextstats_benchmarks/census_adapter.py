@@ -55,6 +55,15 @@ class CensusAdapter(BenchmarkAdapter):
     def source_cache(self) -> Path:
         return self.census_root / "source-cache"
 
+    @property
+    def relation_identity(self) -> str:
+        """Stable logical relation name used by the sample lifecycle."""
+        return "public.census"
+
+    def prepared_artifact(self) -> Artifact:
+        """Load the existing prepared artifact without fetching or executing it."""
+        return self._artifact_from_manifest(self.artifacts_root / "census-prepared-v1")
+
     def _source_declarations(self) -> dict[str, dict[str, Any]]:
         if self._provided_sources is not None:
             return {key: dict(value) for key, value in self._provided_sources.items()}

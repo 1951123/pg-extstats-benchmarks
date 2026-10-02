@@ -33,6 +33,7 @@ class ExecutionRecord:
     output_artifacts: tuple[str, ...]
     message: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    operation: str = "stage"
 
     def __post_init__(self) -> None:
         for name in ("execution_id", "benchmark_id", "stage", "status", "message"):
@@ -47,6 +48,8 @@ class ExecutionRecord:
                 raise ValueError("artifact IDs must be nonempty strings")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("execution metadata must be a mapping")
+        if not isinstance(self.operation, str) or not self.operation.strip():
+            raise ValueError("operation must be a nonempty string")
 
     @property
     def benchmark(self) -> str:
@@ -73,6 +76,7 @@ class ExecutionRecord:
             "output_artifacts": list(self.output_artifacts),
             "message": self.message,
             "metadata": dict(self.metadata),
+            "operation": self.operation,
         }
 
     def to_json(self) -> str:
@@ -91,6 +95,7 @@ class ExecutionRecord:
             output_artifacts=tuple(value.get("output_artifacts", value.get("outputs", ()))),
             message=value["message"],
             metadata=value.get("metadata", {}),
+            operation=value.get("operation", "stage"),
         )
 
 

@@ -1,10 +1,11 @@
 # Architecture checkpoint
 
-This package stops at DBMS-independent lifecycle contracts. It defines how a
-benchmark declaration is resolved, how an adapter produces metadata artifacts,
-how a loader describes a loaded instance, and how a validator returns a
-serializable report. The example implementations are in-memory demonstrations
-only.
+This package keeps its core models DBMS-independent while allowing explicit
+provider plugins at the execution boundary. It defines how a benchmark
+declaration is resolved, how an adapter produces metadata artifacts, how a
+loader describes a loaded instance, and how a validator returns a serializable
+report. PostgreSQL sample capture/replay is isolated under the PostgreSQL
+plugin; no PostgreSQL details enter the core models.
 
 ## Components
 
@@ -23,6 +24,11 @@ only.
   `validator_registry.py` provides explicit registration.
 - `execution.py` records stage provenance and writes JSON only below the
   repository-local `runs/` directory.
+- `sample_artifacts.py` defines the immutable `SampleArtifact` metadata model;
+  `sample_storage.py` confines its opaque payload and manifest below the
+  external benchmark data root.
+- `postgres/sample_provider.py` owns PostgreSQL GUC interaction, relation
+  quoting, capability detection, ANALYZE orchestration, and source provenance.
 - `executor.py` coordinates manifest, adapter, loader, and validator contracts.
   It does not invoke shells, databases, or cleanup operations.
 - `cli.py` is the user-facing inspection and demonstration layer. `fetch.py`,
@@ -44,10 +50,16 @@ Adapters     Loaders       Validators Registry/manifest
  |             |              |
  v             v              v
 Artifacts    Instances      Validation reports
+    |
+    v
+SampleArtifact (opaque PGEXTSC1 payload)
 ```
 
 The core models—`Artifact`, `Lineage`, `ExecutionRecord`, `LoadedInstance`,
 and `ValidationReport`—do not import the CLI, adapters, loaders, or any DBMS.
+`SampleArtifact` is also a core metadata model: it contains no SQL or binary
+parser; the PostgreSQL provider remains the only component that asks a server
+to decode its payload.
 The executor is the orchestration boundary: it resolves a manifest, selects an
 explicit implementation, and passes model objects between contracts.
 
@@ -73,6 +85,7 @@ To add validation, implement `BenchmarkValidator`, register an ID with
 not require the executor or CLI.
 
 Every extension remains responsible for preserving provenance and for keeping
-destructive operations outside these contracts. No cleanup, shell execution,
-SQL, database connection, or external data acquisition is part of this
-checkpoint.
+destructive operations outside these contracts. The core models perform no
+cleanup, shell execution, SQL, or database connection. PostgreSQL sample
+capture and replay are explicit provider operations and never fall back to
+random sampling when capability detection fails.

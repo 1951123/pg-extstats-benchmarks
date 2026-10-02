@@ -64,6 +64,7 @@ class PostgresConnection:
     user: str | None = None
     database: str = "postgres"
     _connection: Any = field(default=None, init=False, repr=False, compare=False)
+    _notices: list[str] = field(default_factory=list, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.host, str) or not self.host.strip():
@@ -115,7 +116,14 @@ class PostgresConnection:
             raise RuntimeError(
                 f"could not connect to PostgreSQL at {self.host}:{self.port}/{self.database}: {exc}"
             ) from exc
+        add_notice_handler = getattr(self._connection, "add_notice_handler", None)
+        if callable(add_notice_handler):
+            add_notice_handler(self._collect_notice)
         return self._connection
+
+    def _collect_notice(self, diagnostic: Any) -> None:
+        message = getattr(diagnostic, "message_primary", None)
+        self._notices.append(str(message or diagnostic))
 
     def execute(self, query: Any, params: Mapping[str, Any] | tuple[Any, ...] | None = None) -> list[tuple[Any, ...]]:
         """Execute one query and return rows, if the query produces rows."""
@@ -161,6 +169,63 @@ class PostgresConnection:
         if not rows or not rows[0] or not isinstance(rows[0][0], str):
             raise RuntimeError("PostgreSQL version query returned no value")
         return rows[0][0]
+
+    def set_config(self, name: str, value: str) -> None:
+        """Set a session GUC through a parameterized server-side call."""
+
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("GUC name must be nonempty")
+        if not isinstance(value, str):
+            raise TypeError("GUC value must be a string")
+        self.execute("SELECT set_config(%s, %s, false)", (name, value))
+
+    def quote_relation(self, relation_identity: str) -> Any:
+        """Return a safely quoted two-part relation identifier."""
+
+        if not isinstance(relation_identity, str):
+            raise TypeError("relation identity must be a string")
+        parts = relation_identity.split(".")
+        if len(parts) != 2 or any(not _IDENTIFIER.fullmatch(part) for part in parts):
+            raise ValueError("relation identity must be schema.relation with safe identifiers")
+        psycopg = _driver()
+        return psycopg.sql.SQL("{}.{}").format(
+            psycopg.sql.Identifier(parts[0]), psycopg.sql.Identifier(parts[1])
+        )
+
+    def analyze(self, relation_identity: str) -> None:
+        """Run ANALYZE for one safely quoted relation."""
+
+        psycopg = _driver()
+        self.execute(psycopg.sql.SQL("ANALYZE {};").format(self.quote_relation(relation_identity)))
+
+    def relation_metadata(self, relation_identity: str) -> list[tuple[Any, ...]]:
+        """Read stable relation/column metadata for a provenance fingerprint."""
+
+        parts = relation_identity.split(".") if isinstance(relation_identity, str) else []
+        if len(parts) != 2 or any(not _IDENTIFIER.fullmatch(part) for part in parts):
+            raise ValueError("relation identity must be schema.relation with safe identifiers")
+        return self.execute(
+            "SELECT c.oid, n.nspname, c.relname, a.attnum, a.attname, "
+            "a.atttypid, a.atttypmod, a.attcollation, a.attisdropped "
+            "FROM pg_catalog.pg_class AS c "
+            "JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace "
+            "JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid "
+            "WHERE n.nspname = %s AND c.relname = %s AND a.attnum > 0 "
+            "ORDER BY a.attnum",
+            (parts[0], parts[1]),
+        )
+
+    def notices(self) -> list[str]:
+        """Return server notices when the installed psycopg exposes them."""
+
+        connection = self.connect()
+        notices = getattr(connection, "notices", ())
+        if notices:
+            return [str(value) for value in notices]
+        return list(self._notices)
+
+    def clear_notices(self) -> None:
+        self._notices.clear()
 
     def execute_script(self, script: str) -> None:
         """Execute a schema script supplied by a prepared artifact."""

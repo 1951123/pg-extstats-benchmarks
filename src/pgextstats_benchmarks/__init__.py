@@ -12,6 +12,8 @@ from .validators import BenchmarkValidator
 from .query_runner import QueryExecutionResult, QueryRunner
 from .truth import TruthArtifact
 from .workload_executor import Query, Workload
+from .sample_artifacts import SampleArtifact
+from .sample_validator import SampleArtifactValidator
 
 # Importing these modules performs the explicit toy registrations. There is
 # no dynamic discovery; the example implementations are the only built-ins.
@@ -22,6 +24,7 @@ from .census_adapter import CensusAdapter
 from .census_validator import CensusValidator
 from .census_validator import CensusTruthValidator
 from .postgres import PostgresConnection, PostgresInstance, PostgreSQLLoader
+from .postgres import PostgreSQLAnalyzeSampleProvider, SampleReplayResult
 
 __all__ = [
     "__version__",
@@ -48,4 +51,8 @@ __all__ = [
     "QueryRunner",
     "QueryExecutionResult",
     "TruthArtifact",
+    "SampleArtifact",
+    "SampleArtifactValidator",
+    "PostgreSQLAnalyzeSampleProvider",
+    "SampleReplayResult",
 ]

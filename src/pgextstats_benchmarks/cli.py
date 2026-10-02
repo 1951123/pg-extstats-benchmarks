@@ -13,6 +13,8 @@ from .census_adapter import CensusAdapter
 from .census_validator import CensusValidator
 from .census_validator import CensusTruthValidator
 from .postgres.query_runner import PostgreSQLQueryRunner
+from .postgres.sample_provider import PostgreSQLAnalyzeSampleProvider
+from .sample_storage import load_sample_manifest
 from .execution import ExecutionRecord, new_execution_id, repository_commit, write_execution_record
 from datetime import datetime, timezone
 
@@ -35,6 +37,11 @@ def main(argv=None) -> int:
     commands.add_parser("load-example-postgres")
     commands.add_parser("load-census-postgres")
     commands.add_parser("collect-census-truth")
+    sample_capture = commands.add_parser("sample-capture")
+    sample_capture.add_argument("benchmark")
+    sample_replay = commands.add_parser("sample-replay")
+    sample_replay.add_argument("benchmark")
+    sample_replay.add_argument("sample_artifact")
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -210,6 +217,92 @@ def main(argv=None) -> int:
                     except Exception:
                         pass
                 runner.close()
+                loader.close()
+        elif args.command in {"sample-capture", "sample-replay"}:
+            if args.benchmark != "census":
+                raise ValueError("sample commands currently support benchmark: census")
+            adapter = CensusAdapter()
+            prepared = adapter.prepared_artifact()
+            loader = get_loader("postgres")()
+            provider = PostgreSQLAnalyzeSampleProvider()
+            instance = None
+            destroyed = False
+            repo_root = Path(__file__).resolve().parents[2]
+            try:
+                instance = loader.create_instance("census")
+                loaded = loader.load_artifact(instance, prepared)
+                validation = loader.validate_instance(loaded)
+                if validation["status"] != "PASS":
+                    raise RuntimeError("managed Census instance validation failed")
+                if args.command == "sample-capture":
+                    result = provider.capture_sample(
+                        loaded,
+                        adapter.relation_identity,
+                        benchmark_id="census",
+                        parent_data_artifact_id=prepared.id,
+                        root=adapter.data_root,
+                    )
+                    artifact = result["artifact"]
+                    execution = ExecutionRecord(
+                        execution_id=new_execution_id(), benchmark_id="census",
+                        stage="sample_capture", operation="sample_capture", status="PASS",
+                        repository_commit=repository_commit(repo_root),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        input_artifacts=(prepared.id,), output_artifacts=(artifact.artifact_id,),
+                        message=result["message"], metadata={
+                            "relation_identity": artifact.relation_identity,
+                            "payload_sha256": artifact.payload_sha256,
+                            "postgres_source": dict(artifact.postgres_source),
+                        },
+                    )
+                    record_path = write_execution_record(execution, repo_root)
+                    cleanup = loader.destroy_instance(loaded)
+                    destroyed = cleanup["status"] == "PASS"
+                    source = artifact.postgres_source
+                    print("Benchmark: census")
+                    print(f"Relation: {artifact.relation_identity}")
+                    print(f"Sample artifact ID: {artifact.artifact_id}")
+                    print(f"Tuple count: {artifact.sample_tuple_count}")
+                    print(f"Payload SHA256: {artifact.payload_sha256}")
+                    print(f"Artifact directory: {Path(artifact.payload_relative_path).parent}")
+                    print(f"PostgreSQL source commit: {source.get('source_commit')}")
+                    print(f"Execution record: {record_path}")
+                    print(f"Cleanup: {cleanup['status']}")
+                    return 0 if destroyed else 1
+                artifact = load_sample_manifest("census", args.sample_artifact, adapter.data_root)
+                replay = provider.replay_sample(
+                    loaded, artifact, relation_identity=adapter.relation_identity, root=adapter.data_root
+                )
+                execution = ExecutionRecord(
+                    execution_id=new_execution_id(), benchmark_id="census",
+                    stage="sample_replay", operation="sample_replay", status=replay.status,
+                    repository_commit=repository_commit(repo_root),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    input_artifacts=(prepared.id, artifact.artifact_id), output_artifacts=(),
+                    message=replay.message, metadata={
+                        "relation_identity": replay.relation_identity,
+                        "payload_sha256": replay.payload_sha256,
+                        "postgres_source": dict(replay.postgres_source),
+                    },
+                )
+                record_path = write_execution_record(execution, repo_root)
+                cleanup = loader.destroy_instance(loaded)
+                destroyed = cleanup["status"] == "PASS"
+                print("Benchmark: census")
+                print(f"Relation: {replay.relation_identity}")
+                print(f"Sample artifact ID: {replay.artifact_id}")
+                print(f"Payload SHA256: {replay.payload_sha256}")
+                print(f"PostgreSQL source commit: {replay.postgres_source.get('source_commit')}")
+                print(f"Replay: {replay.status}")
+                print(f"Execution record: {record_path}")
+                print(f"Cleanup: {cleanup['status']}")
+                return 0 if replay.status == "PASS" and destroyed else 1
+            finally:
+                if instance is not None and not destroyed:
+                    try:
+                        loader.destroy_instance(instance)
+                    except Exception:
+                        pass
                 loader.close()
         elif args.command == "validators":
             for validator_id in list_validators():
