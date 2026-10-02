@@ -34,6 +34,11 @@ plugin; no PostgreSQL details enter the core models.
   model and validate native payload states. `postgres/statistics_provider.py`
   creates managed definitions, imports a sample once, runs one ANALYZE, and
   records opaque native payloads.
+- `statistics_configuration.py` validates an explicit candidate subset.
+  `postgres/configuration_provider.py` registers the native repository once per
+  backend session and switches exact active subsets. `estimate.py` and
+  `postgres/estimate_provider.py` record `EXPLAIN (FORMAT JSON)` Plan Rows
+  without physical statistics changes.
 - `executor.py` coordinates manifest, adapter, loader, and validator contracts.
   It does not invoke shells, databases, or cleanup operations.
 - `cli.py` is the user-facing inspection and demonstration layer. `fetch.py`,
@@ -57,7 +62,11 @@ Adapters     Loaders       Validators Registry/manifest
 Artifacts    Instances      Validation reports
     |
     v
-SampleArtifact (opaque PGEXTSC1 payload)
+    SampleArtifact (opaque PGEXTSC1 payload)
+        ->
+    CandidateCatalog -> StatisticsRepositoryArtifact
+        ->
+    StatisticsConfiguration -> EstimateArtifact
 ```
 
 The core models—`Artifact`, `Lineage`, `ExecutionRecord`, `LoadedInstance`,

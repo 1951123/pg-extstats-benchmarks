@@ -58,6 +58,7 @@ class PostgreSQLStatisticsRepositoryProvider:
         benchmark_id: str,
         artifact_id: str | None = None,
         root: Path | None = None,
+        retain_definitions: bool = False,
     ) -> dict[str, Any]:
         if sample_artifact.benchmark_id != benchmark_id:
             raise ValueError("sample artifact benchmark does not match acquisition benchmark")
@@ -179,11 +180,13 @@ class PostgreSQLStatisticsRepositoryProvider:
             }
         finally:
             try:
-                for schema_name, statistics_name in reversed(created):
-                    try:
-                        target.drop_statistics(schema_name, statistics_name)
-                    except Exception as exc:
-                        cleanup_errors.append(str(exc))
+                should_drop = not retain_definitions or result_payload is None or result_payload.get("status") != "PASS"
+                if should_drop:
+                    for schema_name, statistics_name in reversed(created):
+                        try:
+                            target.drop_statistics(schema_name, statistics_name)
+                        except Exception as exc:
+                            cleanup_errors.append(str(exc))
                 if imported:
                     try:
                         self.sample_provider.end_sample_import(target)
@@ -196,6 +199,7 @@ class PostgreSQLStatisticsRepositoryProvider:
                     "status": "PASS" if not cleanup_errors else "FAIL",
                     "objects": tuple(name for _, name in created),
                     "errors": tuple(cleanup_errors),
+                    "definitions_retained": bool(retain_definitions and not cleanup_errors),
                 }
                 if cleanup_errors:
                     result_payload["status"] = "FAIL"

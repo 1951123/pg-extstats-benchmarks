@@ -17,6 +17,10 @@ from .sample_validator import SampleArtifactValidator
 from .candidate_catalog import CandidateCatalog, CandidateDefinition
 from .statistics_repository import CandidatePayloadState, StatisticsRepositoryArtifact
 from .statistics_repository_validator import StatisticsRepositoryValidator
+from .statistics_configuration import StatisticsConfiguration
+from .statistics_configuration_validator import StatisticsConfigurationValidator
+from .estimate import EstimateArtifact, QueryEstimate, workload_digest
+from .estimate_validator import EstimateArtifactValidator
 
 # Importing these modules performs the explicit toy registrations. There is
 # no dynamic discovery; the example implementations are the only built-ins.
@@ -61,6 +65,12 @@ __all__ = [
     "CandidatePayloadState",
     "StatisticsRepositoryArtifact",
     "StatisticsRepositoryValidator",
+    "StatisticsConfiguration",
+    "StatisticsConfigurationValidator",
+    "EstimateArtifact",
+    "QueryEstimate",
+    "EstimateArtifactValidator",
+    "workload_digest",
     "PostgreSQLAnalyzeSampleProvider",
     "SampleReplayResult",
     "PostgreSQLStatisticsRepositoryProvider",

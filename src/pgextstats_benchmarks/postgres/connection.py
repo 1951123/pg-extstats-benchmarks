@@ -303,6 +303,79 @@ class PostgresConnection:
             (parts[0], parts[1]),
         )
 
+    def relation_oid(self, relation_identity: str) -> int:
+        parts = relation_identity.split(".") if isinstance(relation_identity, str) else []
+        if len(parts) != 2 or any(not _IDENTIFIER.fullmatch(part) for part in parts):
+            raise ValueError("relation identity must be schema.relation")
+        rows = self.execute(
+            "SELECT c.oid FROM pg_catalog.pg_class AS c "
+            "JOIN pg_catalog.pg_namespace AS n ON n.oid=c.relnamespace "
+            "WHERE n.nspname=%s AND c.relname=%s AND c.relkind IN ('r','p')",
+            (parts[0], parts[1]),
+        )
+        if not rows:
+            raise ValueError(f"relation does not exist: {relation_identity}")
+        return int(rows[0][0])
+
+    def hypothetical_reset(self) -> None:
+        """Clear the backend-local hypothetical repository and active design."""
+
+        self.execute("SELECT pg_hypothetical_extstats_reset()")
+
+    def hypothetical_register(self, statistics_oid: int, relation_oid: int, kind_code: str, payload: bytes) -> None:
+        if not isinstance(statistics_oid, int) or statistics_oid <= 0:
+            raise ValueError("statistics_oid must be positive")
+        if not isinstance(relation_oid, int) or relation_oid <= 0:
+            raise ValueError("relation_oid must be positive")
+        if kind_code not in {"m", "f"}:
+            raise ValueError("hypothetical statistics kind must be m or f")
+        if not isinstance(payload, (bytes, bytearray)) or not payload:
+            raise ValueError("hypothetical payload must be nonempty bytes")
+        self.execute(
+            'SELECT pg_hypothetical_extstats_register(%s::oid,%s::oid,%s::"char",%s::bytea)',
+            (statistics_oid, relation_oid, kind_code, bytes(payload)),
+        )
+
+    def hypothetical_register_absent(self, statistics_oid: int, relation_oid: int, kind_code: str) -> None:
+        if not isinstance(statistics_oid, int) or statistics_oid <= 0:
+            raise ValueError("statistics_oid must be positive")
+        if not isinstance(relation_oid, int) or relation_oid <= 0:
+            raise ValueError("relation_oid must be positive")
+        if kind_code not in {"m", "f"}:
+            raise ValueError("hypothetical statistics kind must be m or f")
+        self.execute(
+            'SELECT pg_hypothetical_extstats_register_absent(%s::oid,%s::oid,%s::"char")',
+            (statistics_oid, relation_oid, kind_code),
+        )
+
+    def hypothetical_activate(self, statistics_oids: Sequence[int]) -> list[int]:
+        values = [int(value) for value in statistics_oids]
+        if any(value <= 0 for value in values) or len(set(values)) != len(values):
+            raise ValueError("hypothetical activation OIDs must be unique and positive")
+        self.execute("SELECT pg_hypothetical_extstats_activate(%s::oid[])", (values,))
+        rows = self.execute("SELECT pg_hypothetical_extstats_active()")
+        if not rows:
+            raise RuntimeError("hypothetical active-state probe returned no row")
+        active = rows[0][0]
+        if active is None:
+            return []
+        return [int(value) for value in active]
+
+    def hypothetical_active(self) -> list[int]:
+        rows = self.execute("SELECT pg_hypothetical_extstats_active()")
+        if not rows:
+            raise RuntimeError("hypothetical capability probe returned no row")
+        active = rows[0][0]
+        return [] if active is None else [int(value) for value in active]
+
+    def explain_json(self, query: str) -> Any:
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query must be nonempty SQL")
+        rows = self.execute(f"EXPLAIN (FORMAT JSON) {query}")
+        if not rows:
+            raise RuntimeError("EXPLAIN returned no row")
+        return rows[0][0]
+
     def notices(self) -> list[str]:
         """Return server notices when the installed psycopg exposes them."""
 

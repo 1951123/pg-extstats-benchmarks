@@ -1,5 +1,6 @@
 """Read-only CLI skeleton."""
 import argparse
+import os
 from pathlib import Path
 import sys
 import yaml
@@ -18,7 +19,14 @@ from .postgres.sample_provider import PostgreSQLAnalyzeSampleProvider
 from .sample_storage import load_sample_manifest
 from .candidate_catalog import CandidateCatalog
 from .statistics_repository_validator import StatisticsRepositoryValidator
+from .statistics_configuration import StatisticsConfiguration
+from .statistics_configuration_validator import StatisticsConfigurationValidator
+from .estimate_validator import EstimateArtifactValidator
+from .statistics_storage import load_repository_artifact
+from .workload_executor import load_workload_artifact
 from .postgres.statistics_provider import PostgreSQLStatisticsRepositoryProvider
+from .postgres.estimate_provider import PostgreSQLEstimateProvider
+from .postgres.instance import PostgresInstance
 from .execution import ExecutionRecord, new_execution_id, repository_commit, write_execution_record
 from datetime import datetime, timezone
 
@@ -50,6 +58,16 @@ def main(argv=None) -> int:
     statistics.add_argument("benchmark")
     statistics.add_argument("sample_artifact")
     statistics.add_argument("candidate_catalog", type=Path)
+    config_validate = commands.add_parser("configuration-validate")
+    config_validate.add_argument("benchmark")
+    config_validate.add_argument("repository_artifact")
+    config_validate.add_argument("configuration", type=Path)
+    estimate = commands.add_parser("estimate-collect")
+    estimate.add_argument("benchmark")
+    estimate.add_argument("workload_artifact")
+    estimate.add_argument("repository_artifact")
+    estimate.add_argument("configuration", type=Path)
+    estimate.add_argument("--database", default=os.environ.get("PGEXTBENCH_DATABASE"))
     load_example = commands.add_parser("load-example")
     load_example.add_argument("--loader", default="example-memory")
     commands.add_parser("validators")
@@ -390,6 +408,75 @@ def main(argv=None) -> int:
                     except Exception:
                         pass
                 loader.close()
+        elif args.command == "configuration-validate":
+            root = benchmark_data_root()
+            repository = load_repository_artifact(args.benchmark, args.repository_artifact, root)
+            configuration = StatisticsConfiguration.from_file(str(args.configuration))
+            report = StatisticsConfigurationValidator().validate(configuration, repository)
+            print(f"Benchmark: {args.benchmark}")
+            print(f"Repository: {repository.artifact_id}")
+            print(f"Configuration: {configuration.configuration_id}")
+            print(f"Selected candidates: {configuration.selected_candidate_count}")
+            print(f"Status: {report.status}")
+            return 0 if report.status == "PASS" else 1
+        elif args.command == "estimate-collect":
+            if not args.database:
+                raise ValueError("estimate-collect requires --database or PGEXTBENCH_DATABASE")
+            root = benchmark_data_root()
+            repository = load_repository_artifact(args.benchmark, args.repository_artifact, root)
+            configuration = StatisticsConfiguration.from_file(str(args.configuration))
+            workload_path = root / args.benchmark / "artifacts" / args.workload_artifact
+            workload = load_workload_artifact(workload_path)
+            instance = PostgresInstance(args.database, args.database, "READY")
+            provider = PostgreSQLEstimateProvider()
+            try:
+                result = provider.collect(
+                    instance, workload, repository, configuration,
+                    benchmark_id=args.benchmark, root=root,
+                )
+                artifact = result["artifact"]
+                report = EstimateArtifactValidator().validate(
+                    artifact, workload=workload, repository=repository, configuration=configuration,
+                )
+                repo_root = Path(__file__).resolve().parents[2]
+                execution = ExecutionRecord(
+                    execution_id=new_execution_id(), benchmark_id=args.benchmark,
+                    stage="estimate_collect", operation="estimate_collect",
+                    status="PASS" if report.status == "PASS" else result["status"],
+                    repository_commit=repository_commit(repo_root), timestamp=datetime.now(timezone.utc).isoformat(),
+                    input_artifacts=(workload.workload_id, repository.artifact_id, configuration.configuration_id),
+                    output_artifacts=(artifact.artifact_id,), message=result["message"],
+                    metadata={
+                        "workload_digest": artifact.workload_digest,
+                        "repository_digest": artifact.repository_digest,
+                        "configuration_digest": artifact.configuration_digest,
+                        "query_count": artifact.query_count,
+                        "successful_count": artifact.successful_count,
+                        "unsupported_count": result["unsupported_count"],
+                        "failed_count": artifact.failed_count,
+                        "postgres_source_commit": artifact.postgres_source["source_commit"],
+                        "estimate_digest": artifact.estimate_digest,
+                    },
+                )
+                execution_path = write_execution_record(execution, repo_root)
+                print(f"Benchmark: {args.benchmark}")
+                print(f"Workload: {workload.workload_id}")
+                print(f"Repository digest: {repository.repository_digest}")
+                print(f"Configuration: {configuration.configuration_id}")
+                print(f"Configuration digest: {configuration.configuration_digest}")
+                print(f"Selected candidates: {configuration.selected_candidate_count}")
+                print(f"Queries: {artifact.query_count}")
+                print(f"PASS: {artifact.successful_count}")
+                print(f"UNSUPPORTED: {result['unsupported_count']}")
+                print(f"ERROR: {artifact.failed_count}")
+                print(f"Estimate artifact: {artifact.artifact_id}")
+                print(f"Estimate digest: {artifact.estimate_digest}")
+                print(f"PostgreSQL source commit: {artifact.postgres_source['source_commit']}")
+                print(f"Execution record: {execution_path}")
+                print(f"Status: {execution.status}")
+                return 0 if execution.status == "PASS" else 1
+            finally:
+                provider.close()
         elif args.command == "validators":
             for validator_id in list_validators():
                 print(validator_id)

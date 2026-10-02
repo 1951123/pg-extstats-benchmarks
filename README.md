@@ -26,6 +26,8 @@ benchmark manifest
         -> SampleArtifact (capture/replay)
         -> CandidateCatalog
         -> StatisticsRepositoryArtifact
+        -> StatisticsConfiguration
+        -> EstimateArtifact
 ```
 
 The framework currently demonstrates this lifecycle with the in-memory
@@ -55,6 +57,8 @@ export PGEXTADV_BENCHMARK_DATA="$HOME/benchmark-data"
 .venv/bin/pgextbench load-example-postgres
 .venv/bin/pgextbench sample-capture census
 .venv/bin/pgextbench sample-replay census census-sample-v1
+.venv/bin/pgextbench configuration-validate example repository-id configuration.json
+.venv/bin/pgextbench estimate-collect example workload-id repository-id configuration.json --database pgextbench_example
 .venv/bin/python -m pytest
 ```
 
@@ -100,6 +104,13 @@ validate the patched capability first and drop only their managed database.
 See [`docs/sample-artifacts.md`](docs/sample-artifacts.md) for the contract.
 The fixed-sample native statistics repository contract is documented in
 [`docs/statistics-repository-artifacts.md`](docs/statistics-repository-artifacts.md).
+Configuration and native planner observations are documented in
+[`docs/statistics-configurations.md`](docs/statistics-configurations.md) and
+[`docs/estimate-artifacts.md`](docs/estimate-artifacts.md).
+`estimate-collect` expects a managed database whose catalog definitions were
+prepared during repository acquisition; its provider only registers opaque
+payloads, activates the requested subset, runs `EXPLAIN (FORMAT JSON)`, and
+resets the subset.
 
 ## Definitions and external data
 
