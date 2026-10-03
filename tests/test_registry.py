@@ -62,14 +62,16 @@ def _artifact_verify_fixture(tmp_path: Path, *, raw=True, prepared=True, workloa
 
 def test_registry_and_manifests():
     registry = load_registry(REPO)
-    assert set(registry) == {"dmv", "census", "example"}
+    assert set(registry) == {"dmv", "census", "example", "arecel-census13"}
     for name, benchmark in registry.items():
-        assert benchmark.status == "planned"
+        expected_status = "declared" if name == "arecel-census13" else "planned"
+        assert benchmark.status == expected_status
         assert benchmark.version == "v1"
         manifest = load_manifest(benchmark)
         assert manifest["benchmark_id"] == name
         assert manifest["version"] == "v1"
-        assert manifest["pipeline"]["load"] is None
+        if name != "arecel-census13":
+            assert manifest["pipeline"]["load"] is None
 
 
 def test_extension_and_manifest_parsing(tmp_path):
