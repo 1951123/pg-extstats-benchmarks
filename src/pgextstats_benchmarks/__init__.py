@@ -47,6 +47,8 @@ from .example_validator import ExampleValidator
 from .census_adapter import CensusAdapter
 from .census_validator import CensusValidator
 from .census_validator import CensusTruthValidator
+from .dmv_adapter import DMVAdapter
+from .dmv_validator import DMVValidator, DMVTruthValidator
 from .postgres import PostgresConnection, PostgresInstance, PostgreSQLLoader
 from .postgres import PostgreSQLAnalyzeSampleProvider, SampleReplayResult, PostgreSQLStatisticsRepositoryProvider
 
@@ -63,6 +65,9 @@ __all__ = [
     "CensusAdapter",
     "CensusValidator",
     "CensusTruthValidator",
+    "DMVAdapter",
+    "DMVValidator",
+    "DMVTruthValidator",
     "LoadedInstance",
     "Lineage",
     "PostgresConnection",

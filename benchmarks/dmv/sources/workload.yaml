@@ -1,6 +1,6 @@
 kind: workload
-status: placeholder
-source_url: null
-raw_artifact: null
-sha256: null
-timestamp: null
+status: declared
+source_url: https://raw.githubusercontent.com/wuziniu/BayesCard/master/Benchmark/DMV/query.sql
+raw_url: https://raw.githubusercontent.com/wuziniu/BayesCard/master/Benchmark/DMV/query.sql
+sha256: eeacc0b3d25cac16ea108987ae2c54e45a88f9482689b07070a7afc0b2c06168
+query_count: 1965

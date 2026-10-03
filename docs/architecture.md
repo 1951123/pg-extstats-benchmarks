@@ -52,6 +52,11 @@ plugin; no PostgreSQL details enter the core models.
   selects, or recommends configurations.
 - `executor.py` coordinates manifest, adapter, loader, and validator contracts.
   It does not invoke shells, databases, or cleanup operations.
+- `dmv_adapter.py` is the benchmark-specific manual-source extension: it
+  validates the immutable external tar archive, extracts every member, emits
+  deterministic trimmed DMV data and normalized workload artifacts, and keeps
+  PostgreSQL materialization in the generic loader. `dmv_validator.py` checks
+  source, prepared, loaded-instance, and truth-artifact contracts.
 - `cli.py` is the user-facing inspection and demonstration layer. `fetch.py`,
   `prepare.py`, `load.py`, `validate.py`, `workload.py`, and `truth.py` remain
   reserved extension modules.

@@ -81,6 +81,8 @@ def normalize_workload(
     *,
     workload_id: str,
     source_checksum: str | None = None,
+    query_id_format: str = "qNNN",
+    metadata_source_checksum: str | None = None,
 ) -> Workload:
     """Normalize Census's line-oriented ``SQL||source-cardinality`` file.
 
@@ -103,6 +105,12 @@ def normalize_workload(
 
     queries: list[Query] = []
     source_lines = 0
+    if query_id_format == "qNNN":
+        query_id_width = 3
+    elif query_id_format == "qNNNN":
+        query_id_width = 4
+    else:
+        raise ValueError("unsupported query_id_format")
     for source_lines, line in enumerate(text.splitlines(), start=1):
         if not line:
             continue
@@ -114,17 +122,17 @@ def normalize_workload(
             sql = line
         if not sql.strip().upper().startswith("SELECT"):
             raise ValueError(f"workload line {source_lines} is not a SELECT query")
-        queries.append(Query(query_id=f"q{len(queries) + 1:03d}", sql=sql))
+        queries.append(Query(query_id=f"q{len(queries) + 1:0{query_id_width}d}", sql=sql))
     return Workload(
         workload_id=workload_id,
         queries=tuple(queries),
         metadata={
-            "source_checksum": checksum,
+            "source_checksum": metadata_source_checksum or checksum,
             "source_bytes": len(raw),
             "source_line_count": source_lines,
             "query_count": len(queries),
             "normalization": "preserve SELECT text; remove only || source-cardinality suffix",
-            "query_id_format": "qNNN",
+            "query_id_format": query_id_format,
         },
     )
 
@@ -138,9 +146,14 @@ def load_workload_artifact(artifact_path: str | Path) -> Workload:
     if not manifest_path.is_file() or not query_path.is_file():
         raise FileNotFoundError(f"workload artifact is incomplete: {root}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    source_checksum = manifest.get("source_checksum", manifest.get("sha256"))
+    # DMV preserves the original source query separately and stores the
+    # checksum of the normalized executable query in ``sha256``.  Legacy
+    # artifacts continue to use ``source_checksum`` for query.sql itself.
+    normalized_checksum = manifest.get("normalized_sha256", manifest.get("sha256"))
     return normalize_workload(
         query_path.read_bytes(),
         workload_id=manifest["artifact_id"],
-        source_checksum=source_checksum,
+        source_checksum=normalized_checksum,
+        query_id_format=manifest.get("query_id_format", "qNNN"),
+        metadata_source_checksum=manifest.get("source_checksum", normalized_checksum),
     )

@@ -1,6 +1,7 @@
-kind: data
-status: placeholder
-source_url: null
-raw_artifact: null
-sha256: null
-timestamp: null
+kind: dataset
+status: manual-acquisition-required
+source_url: https://github.com/sfu-db/AreCELearnedYet
+acquisition_url: https://www.dropbox.com/scl/fi/4bol206woptfmyrui42nw/data.tar.gz?rlkey=a1urhc45j0wzg327tnkikqhol&e=3&dl=0
+raw_filename: data.tar.gz
+archive_type: tar.gz
+sha256: 5cd33cba7f3d7182ef497e60e7346fb2a7546941590a90a4444913a944958f79

@@ -90,12 +90,14 @@ def test_extension_and_manifest_parsing(tmp_path):
 def test_cli(capsys, monkeypatch, tmp_path):
     assert main(["--repo", str(REPO), "list"]) == 0
     assert "dmv\tv1\tplanned" in capsys.readouterr().out
-    assert main(["--repo", str(REPO), "verify", "dmv"]) == 0
+    assert main(["--repo", str(REPO), "verify", "dmv"]) == 1
     output = capsys.readouterr().out
     assert "Manifest: PASS" in output
     assert "Source declaration: PASS" in output
-    assert "Raw data: NOT PRESENT" in output
-    assert "Status: INCOMPLETE" in output
+    assert "Raw artifact: CONFIGURATION MISSING" in output
+    assert "Prepared artifact: CONFIGURATION MISSING" in output
+    assert "Workload artifact: CONFIGURATION MISSING" in output
+    assert "Status: CONFIGURATION MISSING" in output
     assert main(["--repo", str(REPO), "verify", "unknown"]) == 1
     monkeypatch.delenv("PGEXTADV_BENCHMARK_DATA", raising=False)
     assert main(["status"]) == 1

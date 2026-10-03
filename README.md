@@ -4,7 +4,7 @@ Reusable infrastructure for external benchmark ingestion and provenance.
 The lifecycle is fetch → immutable raw data → deterministic preparation
 → loading → validation → workload normalization → truth collection → fixed
 PostgreSQL ANALYZE sample capture/replay.
-The framework includes local toy and Census metadata adapters. Generated data
+The framework includes local toy, Census, and DMV metadata adapters. Generated data
 and sample payloads remain external to Git.
 The stable metadata contract is documented in
 [`docs/benchmark-manifest-v1.md`](docs/benchmark-manifest-v1.md), and concrete
@@ -35,10 +35,20 @@ benchmark manifest
 ```
 
 The framework currently demonstrates this lifecycle with the in-memory
-`example` benchmark. To add a benchmark, implement and explicitly register a
-`BenchmarkAdapter`; to add materialization behavior, register a
-`DatabaseLoader`; to add correctness checks, register a `BenchmarkValidator`.
-Core models remain DBMS-independent.
+`example` benchmark and the external `census` and `dmv` contracts. To add a
+benchmark, implement and explicitly register a `BenchmarkAdapter`; to add
+materialization behavior, register a `DatabaseLoader`; to add correctness
+checks, register a `BenchmarkValidator`. Core models remain DBMS-independent.
+
+DMV raw acquisition is manual because the historical source is distributed
+through a Dropbox sharing URL rather than a stable download API. Place the
+immutable archive at
+`$PGEXTADV_BENCHMARK_DATA/dmv/incoming/data.tar.gz`. The adapter validates
+its SHA256 against `benchmarks/dmv/sources/data.yaml`, extracts and trims the
+source deterministically into external `dmv-*` artifacts, and never commits
+raw or generated data to Git. The BayesCard DMV workload is cached from its
+stable raw GitHub URL and normalized into PostgreSQL-compatible SQL while the
+original query text remains in the workload artifact.
 
 ## Development
 

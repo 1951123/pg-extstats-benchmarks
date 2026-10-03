@@ -227,7 +227,13 @@ def _verify_artifact(
         return "PRESENT/INVALID"
 
     if key == "raw":
-        payload = artifact_dir / "source.zip"
+        payload_name = manifest.get("payload_path") or manifest.get("raw_filename") or "source.zip"
+        if not isinstance(payload_name, str):
+            return "PRESENT/INVALID"
+        try:
+            payload = confined_path(artifact_dir, payload_name)
+        except ValueError:
+            return "PRESENT/INVALID"
         source = declarations.get("data", {})
         expected = source.get("sha256")
         if not payload.is_file() or not isinstance(expected, str):
@@ -236,13 +242,33 @@ def _verify_artifact(
         return "PRESENT/VALID" if actual == expected == manifest.get("sha256") else "PRESENT/INVALID"
 
     if key == "workload":
-        payload = artifact_dir / "query.sql"
         source = declarations.get("workload", {})
         expected = source.get("sha256")
-        if not payload.is_file() or not isinstance(expected, str):
+        source_name = manifest.get("source_payload_path")
+        normalized_name = manifest.get("normalized_payload_path", "query.sql")
+        if not isinstance(normalized_name, str):
             return "PRESENT/INVALID"
-        actual = _digest(payload)
-        return "PRESENT/VALID" if actual == expected == manifest.get("sha256") else "PRESENT/INVALID"
+        try:
+            normalized = confined_path(artifact_dir, normalized_name)
+            source_payload = (
+                confined_path(artifact_dir, source_name)
+                if isinstance(source_name, str)
+                else normalized
+            )
+        except ValueError:
+            return "PRESENT/INVALID"
+        if not normalized.is_file() or not source_payload.is_file() or not isinstance(expected, str):
+            return "PRESENT/INVALID"
+        source_actual = _digest(source_payload)
+        normalized_actual = _digest(normalized)
+        if isinstance(source_name, str):
+            return (
+                "PRESENT/VALID"
+                if source_actual == expected == manifest.get("source_checksum")
+                and normalized_actual == manifest.get("sha256")
+                else "PRESENT/INVALID"
+            )
+        return "PRESENT/VALID" if normalized_actual == expected == manifest.get("sha256") else "PRESENT/INVALID"
 
     # Prepared artifacts are validated from their manifest and confined member
     # paths.  Their large data payload is not re-hashed by the registry check.

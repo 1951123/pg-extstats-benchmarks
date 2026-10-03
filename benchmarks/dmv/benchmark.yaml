@@ -1,6 +1,6 @@
 benchmark_id: dmv
 version: v1
-description: DMV benchmark placeholder
+description: DMV vehicle registration benchmark with manual raw archive acquisition
 sources:
   data:
     manifest: sources/data.yaml
@@ -12,12 +12,15 @@ pipeline:
   validate: null
   truth: null
 artifacts:
-  raw: null
-  prepared: null
+  raw: dmv-raw-v1
+  prepared: dmv-prepared-v1
+  workload: dmv-workload-v1
+  schema: dmv-schema-v1
+  truth: dmv-truth-v1
   loaded: null
 provenance:
-  url: null
-  sha256: null
+  url: https://github.com/sfu-db/AreCELearnedYet
+  sha256: 5cd33cba7f3d7182ef497e60e7346fb2a7546941590a90a4444913a944958f79
   timestamp: null
   generator_commit: null
-  transformation_version: null
+  transformation_version: dmv-trim-v1

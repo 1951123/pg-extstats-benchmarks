@@ -14,6 +14,8 @@ from .validator_registry import list_validators
 from .census_adapter import CensusAdapter
 from .census_validator import CensusValidator
 from .census_validator import CensusTruthValidator
+from .dmv_adapter import DMVAdapter
+from .dmv_validator import DMVValidator, DMVTruthValidator
 from .postgres.query_runner import PostgreSQLQueryRunner
 from .postgres.sample_provider import PostgreSQLAnalyzeSampleProvider
 from .sample_storage import load_sample_manifest
@@ -70,7 +72,9 @@ def main(argv=None) -> int:
     commands.add_parser("postgres-check")
     commands.add_parser("load-example-postgres")
     commands.add_parser("load-census-postgres")
+    commands.add_parser("load-dmv-postgres")
     commands.add_parser("collect-census-truth")
+    commands.add_parser("collect-dmv-truth")
     sample_capture = commands.add_parser("sample-capture")
     sample_capture.add_argument("benchmark")
     sample_replay = commands.add_parser("sample-replay")
@@ -213,6 +217,104 @@ def main(argv=None) -> int:
             print(f"Loader: {result['loader']}")
             print(f"Instance: {result['instance']['instance_id']}")
             print(f"Status: {result['instance']['status']}")
+        elif args.command == "load-dmv-postgres":
+            adapter = DMVAdapter()
+            prepared_result = adapter.prepare()
+            prepared = prepared_result["output_artifacts"][0]
+            raw = prepared_result["input_artifacts"][0]
+            workload = adapter.normalize_workload()["output_artifacts"][0]
+            loader = get_loader("postgres")()
+            instance = None
+            destroyed = False
+            try:
+                instance = loader.create_instance("dmv")
+                loaded = loader.load_artifact(instance, prepared)
+                report = DMVValidator(data_root=adapter.data_root).validate_loaded_instance(
+                    loaded, loader, raw_artifact=raw, prepared_artifact=prepared, workload_artifact=workload,
+                )
+                cleanup = loader.destroy_instance(loaded)
+                destroyed = cleanup["status"] == "PASS"
+                repo_root = Path(__file__).resolve().parents[2]
+                execution = ExecutionRecord(
+                    execution_id=new_execution_id(), benchmark_id="dmv", stage="load", status="PASS" if report.status == "PASS" and destroyed else "FAIL",
+                    repository_commit=repository_commit(repo_root), timestamp=datetime.now(timezone.utc).isoformat(),
+                    input_artifacts=(raw.id, prepared.id, workload.id), output_artifacts=(),
+                    message="DMV PostgreSQL artifact loading completed", metadata={
+                        "artifact_id": prepared.id, "postgres_version": loaded.metadata.get("postgres_version"),
+                        "loader_type": loader.__class__.__name__, "instance_metadata": dict(loaded.metadata),
+                    },
+                )
+                write_execution_record(execution, repo_root)
+                version = str(loaded.metadata.get("postgres_version", "unknown"))
+                version_parts = version.split()
+                display_version = version_parts[1] if len(version_parts) > 1 else version
+                print("Benchmark: dmv")
+                print(f"PostgreSQL: {display_version}")
+                print(f"Artifact: {prepared.id}")
+                print("Load: PASS")
+                print(f"Validation: {report.status}")
+                print(f"Rows: {loaded.metadata.get('rows_loaded', 0)}")
+                print(f"Cleanup: {cleanup['status']}")
+                return 0 if report.status == "PASS" and destroyed else 1
+            finally:
+                if instance is not None and not destroyed:
+                    try:
+                        loader.destroy_instance(instance)
+                    except Exception:
+                        pass
+                loader.close()
+        elif args.command == "collect-dmv-truth":
+            adapter = DMVAdapter()
+            prepared = adapter.prepare()["output_artifacts"][0]
+            workload_artifact = adapter.normalize_workload()["output_artifacts"][0]
+            loader = get_loader("postgres")()
+            runner = PostgreSQLQueryRunner()
+            instance = None
+            destroyed = False
+            try:
+                instance = loader.create_instance("dmv")
+                loaded = loader.load_artifact(instance, prepared)
+                if loader.validate_instance(loaded)["status"] != "PASS":
+                    raise RuntimeError("DMV database validation failed before truth collection")
+                truth_result = adapter.collect_truth(loaded, runner)
+                truth = truth_result["truth"]
+                truth_report = DMVTruthValidator().validate_truth(truth_result["workload"], truth)
+                cleanup = loader.destroy_instance(loaded)
+                destroyed = cleanup["status"] == "PASS"
+                repo_root = Path(__file__).resolve().parents[2]
+                truth_artifact = truth_result["output_artifacts"][0]
+                execution = ExecutionRecord(
+                    execution_id=new_execution_id(), benchmark_id="dmv", stage="collect_truth", status="PASS" if truth_report.status == "PASS" and destroyed else "FAIL",
+                    repository_commit=repository_commit(repo_root), timestamp=datetime.now(timezone.utc).isoformat(),
+                    input_artifacts=(workload_artifact.id,), output_artifacts=(truth_artifact.id,),
+                    message="DMV truth collection completed", metadata={
+                        "workload_artifact_id": workload_artifact.id, "postgres_version": loaded.metadata.get("postgres_version"),
+                        "query_runner": runner.__class__.__name__, "query_count": truth.query_count,
+                        "successful_queries": truth.successful_queries,
+                    },
+                )
+                record_path = write_execution_record(execution, repo_root)
+                version = str(loaded.metadata.get("postgres_version", "unknown"))
+                version_parts = version.split()
+                display_version = version_parts[1] if len(version_parts) > 1 else version
+                print("Benchmark: dmv")
+                print(f"Workload: {workload_artifact.id}")
+                print(f"Runner: {runner.__class__.__name__}")
+                print(f"PostgreSQL: {display_version}")
+                print(f"Queries: {truth.query_count}")
+                print(f"Truth: {truth_report.status}")
+                print(f"Truth artifact: {truth_artifact.path / 'truth.json'}")
+                print(f"Successful queries: {truth.successful_queries}")
+                print(f"Execution record: {record_path}")
+                return 0 if truth_report.status == "PASS" and destroyed else 1
+            finally:
+                if instance is not None and not destroyed:
+                    try:
+                        loader.destroy_instance(instance)
+                    except Exception:
+                        pass
+                runner.close()
+                loader.close()
         elif args.command == "collect-census-truth":
             adapter = CensusAdapter()
             prepared_result = adapter.prepare()
@@ -278,9 +380,9 @@ def main(argv=None) -> int:
                 runner.close()
                 loader.close()
         elif args.command in {"sample-capture", "sample-replay"}:
-            if args.benchmark != "census":
-                raise ValueError("sample commands currently support benchmark: census")
-            adapter = CensusAdapter()
+            if args.benchmark not in {"census", "dmv"}:
+                raise ValueError("sample commands currently support benchmarks: census, dmv")
+            adapter = get_adapter(args.benchmark)()
             prepared = adapter.prepared_artifact()
             loader = get_loader("postgres")()
             provider = PostgreSQLAnalyzeSampleProvider()
@@ -288,22 +390,19 @@ def main(argv=None) -> int:
             destroyed = False
             repo_root = Path(__file__).resolve().parents[2]
             try:
-                instance = loader.create_instance("census")
+                instance = loader.create_instance(args.benchmark)
                 loaded = loader.load_artifact(instance, prepared)
                 validation = loader.validate_instance(loaded)
                 if validation["status"] != "PASS":
-                    raise RuntimeError("managed Census instance validation failed")
+                    raise RuntimeError(f"managed {args.benchmark} instance validation failed")
                 if args.command == "sample-capture":
                     result = provider.capture_sample(
-                        loaded,
-                        adapter.relation_identity,
-                        benchmark_id="census",
-                        parent_data_artifact_id=prepared.id,
-                        root=adapter.data_root,
+                        loaded, adapter.relation_identity, benchmark_id=args.benchmark,
+                        parent_data_artifact_id=prepared.id, root=adapter.data_root,
                     )
                     artifact = result["artifact"]
                     execution = ExecutionRecord(
-                        execution_id=new_execution_id(), benchmark_id="census",
+                        execution_id=new_execution_id(), benchmark_id=args.benchmark,
                         stage="sample_capture", operation="sample_capture", status="PASS",
                         repository_commit=repository_commit(repo_root),
                         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -318,7 +417,7 @@ def main(argv=None) -> int:
                     cleanup = loader.destroy_instance(loaded)
                     destroyed = cleanup["status"] == "PASS"
                     source = artifact.postgres_source
-                    print("Benchmark: census")
+                    print(f"Benchmark: {args.benchmark}")
                     print(f"Relation: {artifact.relation_identity}")
                     print(f"Sample artifact ID: {artifact.artifact_id}")
                     print(f"Tuple count: {artifact.sample_tuple_count}")
@@ -328,12 +427,12 @@ def main(argv=None) -> int:
                     print(f"Execution record: {record_path}")
                     print(f"Cleanup: {cleanup['status']}")
                     return 0 if destroyed else 1
-                artifact = load_sample_manifest("census", args.sample_artifact, adapter.data_root)
+                artifact = load_sample_manifest(args.benchmark, args.sample_artifact, adapter.data_root)
                 replay = provider.replay_sample(
                     loaded, artifact, relation_identity=adapter.relation_identity, root=adapter.data_root
                 )
                 execution = ExecutionRecord(
-                    execution_id=new_execution_id(), benchmark_id="census",
+                    execution_id=new_execution_id(), benchmark_id=args.benchmark,
                     stage="sample_replay", operation="sample_replay", status=replay.status,
                     repository_commit=repository_commit(repo_root),
                     timestamp=datetime.now(timezone.utc).isoformat(),
@@ -347,7 +446,7 @@ def main(argv=None) -> int:
                 record_path = write_execution_record(execution, repo_root)
                 cleanup = loader.destroy_instance(loaded)
                 destroyed = cleanup["status"] == "PASS"
-                print("Benchmark: census")
+                print(f"Benchmark: {args.benchmark}")
                 print(f"Relation: {replay.relation_identity}")
                 print(f"Sample artifact ID: {replay.artifact_id}")
                 print(f"Payload SHA256: {replay.payload_sha256}")
