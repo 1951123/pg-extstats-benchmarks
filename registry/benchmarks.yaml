@@ -11,3 +11,7 @@ benchmarks:
     path: benchmarks/example
     status: planned
     version: v1
+  arecel-census13:
+    path: benchmarks/arecel-census13
+    status: declared
+    version: v1

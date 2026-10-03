@@ -49,6 +49,7 @@ from .census_validator import CensusValidator
 from .census_validator import CensusTruthValidator
 from .dmv_adapter import DMVAdapter
 from .dmv_validator import DMVValidator, DMVTruthValidator
+from .arecel_adapter import AreCELearnedYetAdapter
 from .postgres import PostgresConnection, PostgresInstance, PostgreSQLLoader
 from .postgres import PostgreSQLAnalyzeSampleProvider, SampleReplayResult, PostgreSQLStatisticsRepositoryProvider
 
@@ -68,6 +69,7 @@ __all__ = [
     "DMVAdapter",
     "DMVValidator",
     "DMVTruthValidator",
+    "AreCELearnedYetAdapter",
     "LoadedInstance",
     "Lineage",
     "PostgresConnection",

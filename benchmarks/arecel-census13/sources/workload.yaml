@@ -1,0 +1,7 @@
+raw_url: https://github.com/sfu-db/AreCELearnedYet
+sha256: 5cd33cba7f3d7182ef497e60e7346fb2a7546941590a90a4444913a944958f79
+upstream_commit: aa52da7768023270bad884232972e0b77ec6534a
+source_files:
+  - data/census13/workload/base.pkl
+  - data/census13/workload/base-original-label.pkl
+canonical_artifact_root: /home/wqts/benchmark-data/arecel/audit-v1

@@ -1,0 +1,27 @@
+benchmark_id: arecel-census13
+version: v1
+description: Audited AreCELearnedYet census13 benchmark with held-out valid/test workload splits
+sources:
+  data:
+    manifest: sources/data.yaml
+  workload:
+    manifest: sources/workload.yaml
+pipeline:
+  transform: arecel-audit-promotion-v1
+  load: PostgreSQLLoader
+  validate: declared-source-and-artifact-lineage
+  truth: split-scoped exact-count collection
+artifacts:
+  raw: arecel-census13-raw-v1
+  prepared: arecel-census13-prepared-v1
+  workload: arecel-census13-workload-v1
+  schema: arecel-census13-schema-v1
+  truth: null
+  loaded: null
+provenance:
+  url: https://github.com/sfu-db/AreCELearnedYet
+  upstream_commit: aa52da7768023270bad884232972e0b77ec6534a
+  archive_sha256: 5cd33cba7f3d7182ef497e60e7346fb2a7546941590a90a4444913a944958f79
+  audit_root: /home/wqts/benchmark-data/arecel/audit-v1
+relation_identity: public.census13
+dataset: census13
