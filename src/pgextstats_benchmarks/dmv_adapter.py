@@ -390,7 +390,10 @@ class DMVAdapter(BenchmarkAdapter):
         for source_line_count, line in enumerate(source.decode("utf-8").splitlines(), start=1):
             if not line.strip():
                 continue
-            sql, separator, _truth = line.partition("||")
+            # The source cardinality is from a different DMV data version and is
+            # intentionally ignored; authoritative truth is collected by executing
+            # this normalized workload against the current DMV dataset.
+            sql, separator, _legacy_cardinality = line.partition("||")
             if not separator:
                 raise ValueError(f"DMV workload line {source_line_count} has no || truth suffix")
             normalized = cls._normalize_query(sql)
