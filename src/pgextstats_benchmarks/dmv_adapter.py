@@ -38,7 +38,10 @@ DMV_RAW_FILENAME = "data.tar.gz"
 
 _IN_LIST = re.compile(r"\bIN\s*\[([^\]]*)\]", re.IGNORECASE)
 _FROM_DMV = re.compile(r"\bFROM\s+DMV\b", re.IGNORECASE)
-_EQUALITY_TOKEN = re.compile(r"(\b[A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z][A-Za-z0-9_-]*)")
+_EQUALITY_TOKEN = re.compile(
+    r"(\b[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?![\'\"])(.*?)(?=\s+(?:AND|OR)\s+|$)",
+    re.IGNORECASE,
+)
 
 
 class DMVAdapter(BenchmarkAdapter):
@@ -404,7 +407,7 @@ class DMVAdapter(BenchmarkAdapter):
                 "source_bytes": len(source),
                 "source_line_count": source_line_count,
                 "query_count": len(queries),
-                "normalization": "convert BayesCard IN [...] and == syntax to PostgreSQL IN (...) and =; qualify DMV as public.dmv",
+                "normalization": "convert BayesCard IN [...], bare scalar literals, and == syntax to PostgreSQL IN (...), quoted literals, and =; qualify DMV as public.dmv",
                 "query_id_format": "qNNNN",
             },
         )
@@ -486,13 +489,22 @@ class DMVAdapter(BenchmarkAdapter):
         truth_dir.mkdir(parents=True, exist_ok=True)
         truth_bytes = truth.to_json().encode("utf-8")
         truth_path = truth_dir / "truth.json"
+        manifest_path = self._manifest_path(truth_dir)
+        replace_incomplete = False
         if truth_path.exists() and truth_path.read_bytes() != truth_bytes:
-            raise FileExistsError(f"DMV truth artifact already exists with different content: {truth_path}")
-        if not truth_path.exists():
+            if not manifest_path.exists():
+                raise FileExistsError(f"DMV truth artifact already exists with different content: {truth_path}")
+            existing_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            replace_incomplete = (
+                existing_manifest.get("successful_queries")
+                != existing_manifest.get("query_count")
+            )
+            if not replace_incomplete:
+                raise FileExistsError(f"DMV truth artifact already exists with different content: {truth_path}")
+        if not truth_path.exists() or replace_incomplete:
             truth_path.write_bytes(truth_bytes)
         truth_digest = self._bytes_digest(truth_bytes)
-        manifest_path = self._manifest_path(truth_dir)
-        if not manifest_path.exists():
+        if not manifest_path.exists() or replace_incomplete:
             self._write_json(
                 manifest_path,
                 {

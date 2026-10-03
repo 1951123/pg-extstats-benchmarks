@@ -79,6 +79,16 @@ def test_missing_manual_archive_is_explicit(tmp_path):
         adapter.fetch()
 
 
+def test_dmv_normalizes_scalar_and_multiword_literals():
+    normalized = DMVAdapter._normalize_query(
+        "SELECT COUNT(*) FROM DMV WHERE Body_Type == 4DSD "
+        "AND County == NEW YORK AND State == NY"
+    )
+    assert "Body_Type = '4DSD'" in normalized
+    assert "County = 'NEW YORK'" in normalized
+    assert "State = 'NY'" in normalized
+
+
 def test_dmv_fetch_prepare_and_normalize_are_deterministic(tmp_path):
     adapter, sources, archive, _workload = _fixture(tmp_path)
     raw_result = adapter.fetch()
