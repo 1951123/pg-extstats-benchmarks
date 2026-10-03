@@ -114,10 +114,13 @@ def test_postgres_artifact_loading_and_row_validation():
         assert loaded.status == "LOADED"
         assert loaded.metadata["tables"] == ["example_table"]
         assert loaded.metadata["rows_loaded"] == 2
+        policy = loaded.metadata["statistics_maintenance_policy"]
+        assert policy["automatic_statistics_maintenance_disabled"] is True
+        assert policy["relations"]["example_table"]["relation_autovacuum_enabled"] is False
         report = loader.validate_instance(loaded)
         assert report["status"] == "PASS"
         assert {check["name"] for check in report["checks"]} >= {
-            "table_exists", "row_count"
+            "table_exists", "row_count", "statistics_maintenance_policy"
         }
         wrong_counts = dict(loaded.metadata)
         wrong_counts["expected_tables"] = {"example_table": 3}

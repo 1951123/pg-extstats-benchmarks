@@ -28,6 +28,39 @@ def _fingerprint_rows(rows: list[tuple[Any, ...]]) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def verify_ordinary_statistics_fingerprint(
+    connection: PostgresConnection,
+    relation_identity: str,
+    expected_fingerprint: str,
+    phase: str,
+) -> dict[str, Any]:
+    """Verify persisted ordinary ``pg_stats`` state at a lifecycle boundary."""
+
+    if not isinstance(expected_fingerprint, str) or len(expected_fingerprint) != 64:
+        raise ValueError("expected ordinary statistics fingerprint must be a SHA-256 hex digest")
+    if not isinstance(phase, str) or not phase.strip():
+        raise ValueError("fingerprint verification phase must be nonempty")
+    try:
+        observed_fingerprint = _fingerprint_rows(connection.ordinary_statistics(relation_identity))
+    except Exception as exc:
+        raise RuntimeError(
+            f"ordinary PostgreSQL statistics fingerprint was unavailable at phase {phase!r}"
+        ) from exc
+    result = {
+        "phase": phase,
+        "relation_identity": relation_identity,
+        "expected_fingerprint": expected_fingerprint,
+        "observed_fingerprint": observed_fingerprint,
+        "match": observed_fingerprint == expected_fingerprint,
+    }
+    if not result["match"]:
+        raise RuntimeError(
+            f"ordinary PostgreSQL statistics fingerprint drifted at phase {phase!r}: "
+            f"expected {expected_fingerprint}, observed {observed_fingerprint}"
+        )
+    return result
+
+
 def _database(instance: Any) -> str:
     value = getattr(instance, "database_name", None)
     if not isinstance(value, str) or not value:
@@ -207,4 +240,7 @@ class PostgreSQLStatisticsRepositoryProvider:
         return result_payload
 
 
-__all__ = ["PostgreSQLStatisticsRepositoryProvider"]
+__all__ = [
+    "PostgreSQLStatisticsRepositoryProvider",
+    "verify_ordinary_statistics_fingerprint",
+]

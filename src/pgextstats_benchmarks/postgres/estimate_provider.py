@@ -12,6 +12,7 @@ from ..statistics_repository import StatisticsRepositoryArtifact
 from ..workload_executor import Workload
 from .configuration_provider import PostgreSQLStatisticsConfigurationProvider
 from .instance import PostgresInstance
+from .statistics_provider import verify_ordinary_statistics_fingerprint
 
 
 _UNSUPPORTED = re.compile(r"\b(join|union|intersect|except)\b", re.IGNORECASE)
@@ -94,6 +95,12 @@ class PostgreSQLEstimateProvider:
         try:
             registration = provider.register_repository(instance, repository, root=root)
             registered = True
+            verify_ordinary_statistics_fingerprint(
+                target,
+                repository.relation_identity,
+                repository.ordinary_statistics_fingerprint,
+                "before_estimate_collection",
+            )
             provider.reset_configuration()
             provider.activate(configuration)
             for query in workload.queries:
@@ -108,6 +115,12 @@ class PostgreSQLEstimateProvider:
                     results.append(QueryEstimate(query.query_id, "PASS", estimated_rows=rows))
                 except Exception as exc:
                     results.append(QueryEstimate(query.query_id, "ERROR", metadata={"error": str(exc)}))
+            verify_ordinary_statistics_fingerprint(
+                target,
+                repository.relation_identity,
+                repository.ordinary_statistics_fingerprint,
+                "after_estimate_collection",
+            )
             artifact = EstimateArtifact.create(
                 artifact_id=artifact_id,
                 benchmark_id=benchmark_id,

@@ -10,6 +10,7 @@ from pgextstats_benchmarks.estimate import EstimateArtifact, QueryEstimate, work
 from pgextstats_benchmarks.postgres.configuration_provider import PostgreSQLStatisticsConfigurationProvider
 from pgextstats_benchmarks.postgres.estimate_provider import PostgreSQLEstimateProvider, extract_plan_rows
 from pgextstats_benchmarks.postgres.instance import PostgresInstance
+from pgextstats_benchmarks.postgres.statistics_provider import _fingerprint_rows
 from pgextstats_benchmarks.statistics_configuration import StatisticsConfiguration
 from pgextstats_benchmarks.statistics_configuration_validator import StatisticsConfigurationValidator
 from pgextstats_benchmarks.statistics_repository import CandidatePayloadState, StatisticsRepositoryArtifact
@@ -23,6 +24,8 @@ SOURCE = {
     "server_version": "PostgreSQL 16.14",
     "binary_sha256": "4" * 64,
 }
+
+ORDINARY_ROWS = [("a", 0.0, 4, -1.0, None, None, None, 1.0)]
 
 
 def make_repository(root: Path) -> StatisticsRepositoryArtifact:
@@ -43,7 +46,7 @@ def make_repository(root: Path) -> StatisticsRepositoryArtifact:
         sample_artifact_id="sample-v1", sample_payload_sha256="a" * 64,
         candidate_catalog={"catalog_id": "catalog-v1", "catalog_sha256": "b" * 64, "candidate_count": 4},
         postgres_source=SOURCE, statistics_target={"requested": 100, "effective": 100},
-        ordinary_statistics_fingerprint="c" * 64, candidate_states=tuple(states),
+        ordinary_statistics_fingerprint=_fingerprint_rows(ORDINARY_ROWS), candidate_states=tuple(states),
         repository_digest="0" * 64, lineage={"sample_artifact_id": "sample-v1"},
     )
 
@@ -128,6 +131,7 @@ class FakeTarget:
         self.active = list(oids)
         return list(oids)
     def hypothetical_active(self): return list(self.active)
+    def ordinary_statistics(self, relation): return ORDINARY_ROWS
     def explain_json(self, query):
         self.calls.append(("explain", query))
         return [{"Plan": {"Node Type": "Seq Scan", "Relation Name": "fixture", "Plan Rows": 42}}]

@@ -199,6 +199,45 @@ class PostgresConnection:
         psycopg = _driver()
         self.execute(psycopg.sql.SQL("ANALYZE {};").format(self.quote_relation(relation_identity)))
 
+    def relation_options(self, relation_identity: str) -> list[str]:
+        """Return the table-local ``pg_class.reloptions`` values."""
+
+        parts = relation_identity.split(".") if isinstance(relation_identity, str) else []
+        if len(parts) != 2 or any(not _IDENTIFIER.fullmatch(part) for part in parts):
+            raise ValueError("relation identity must be schema.relation")
+        rows = self.execute(
+            "SELECT c.reloptions FROM pg_catalog.pg_class AS c "
+            "JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = %s AND c.relname = %s AND c.relkind IN ('r', 'p')",
+            (parts[0], parts[1]),
+        )
+        if not rows:
+            raise ValueError(f"relation does not exist: {relation_identity}")
+        options = rows[0][0]
+        return [] if options is None else [str(option) for option in options]
+
+    def disable_automatic_statistics_maintenance(self, relation_identity: str) -> dict[str, Any]:
+        """Disable table-local autovacuum and verify the setting took effect."""
+
+        psycopg = _driver()
+        self.execute(
+            psycopg.sql.SQL("ALTER TABLE {} SET (autovacuum_enabled = false)").format(
+                self.quote_relation(relation_identity)
+            )
+        )
+        options = self.relation_options(relation_identity)
+        normalized = {option.replace(" ", "") for option in options}
+        if "autovacuum_enabled=false" not in normalized:
+            raise RuntimeError(
+                f"table-local autovacuum disable was not verified for {relation_identity}"
+            )
+        return {
+            "relation_identity": relation_identity,
+            "automatic_statistics_maintenance_disabled": True,
+            "relation_autovacuum_enabled": False,
+            "reloptions": options,
+        }
+
     def set_default_statistics_target(self, target: int) -> None:
         if not isinstance(target, int) or target <= 0:
             raise ValueError("statistics target must be positive")

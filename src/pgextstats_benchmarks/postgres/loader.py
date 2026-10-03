@@ -193,6 +193,9 @@ class PostgreSQLLoader(DatabaseLoader):
                 header=header,
             )
             rows_loaded = expected_rows
+            statistics_policy = target.disable_automatic_statistics_maintenance(
+                f"public.{table}"
+            )
         finally:
             target.close()
 
@@ -211,6 +214,13 @@ class PostgreSQLLoader(DatabaseLoader):
                 "rows_loaded": int(metadata.get("rows_loaded", 0)) + rows_loaded,
                 "loader_type": self.__class__.__name__,
                 "expected_columns": {table: list(database_columns)},
+                "statistics_maintenance_policy": {
+                    "policy_id": "fixed-sample-ce-v1",
+                    "applied_by": f"{self.__class__.__module__}.{self.__class__.__name__}",
+                    "automatic_statistics_maintenance_disabled": True,
+                    "relation_autovacuum_enabled": False,
+                    "relations": {table: statistics_policy},
+                },
             }
         )
         return replace(instance, status="LOADED", metadata=metadata)
@@ -284,6 +294,34 @@ class PostgreSQLLoader(DatabaseLoader):
                     checks.append(
                         ValidationCheck("row_count", row_status, expected_tables, actual_counts)
                     )
+                    policy = metadata.get("statistics_maintenance_policy")
+                    if policy is not None:
+                        if not isinstance(policy, dict):
+                            raise TypeError("statistics_maintenance_policy metadata must be a mapping")
+                        relations = policy.get("relations", {})
+                        if not isinstance(relations, dict):
+                            raise TypeError("statistics_maintenance_policy relations must be a mapping")
+                        expected_policy = {
+                            table: bool(relations.get(table, {}).get("relation_autovacuum_enabled") is False)
+                            for table in sorted(expected_tables)
+                        }
+                        actual_policy: dict[str, bool] = {}
+                        for table in sorted(expected_tables):
+                            options = target.relation_options(f"public.{table}")
+                            actual_policy[table] = "autovacuum_enabled=false" in {
+                                option.replace(" ", "") for option in options
+                            }
+                        policy_status = "PASS" if expected_policy == actual_policy and all(
+                            expected_policy.values()
+                        ) else "FAIL"
+                        checks.append(
+                            ValidationCheck(
+                                "statistics_maintenance_policy",
+                                policy_status,
+                                expected_policy,
+                                actual_policy,
+                            )
+                        )
             except Exception as exc:
                 checks.append(ValidationCheck("version_query", "FAIL", "PostgreSQL 16.14", None, str(exc)))
                 if expected_tables:
@@ -291,6 +329,8 @@ class PostgreSQLLoader(DatabaseLoader):
                     if metadata.get("expected_columns"):
                         checks.append(ValidationCheck("expected_columns", "FAIL", metadata["expected_columns"], None, str(exc)))
                     checks.append(ValidationCheck("row_count", "FAIL", expected_tables, None, str(exc)))
+                    if metadata.get("statistics_maintenance_policy") is not None:
+                        checks.append(ValidationCheck("statistics_maintenance_policy", "FAIL", True, None, str(exc)))
             finally:
                 target.close()
         else:
@@ -300,6 +340,8 @@ class PostgreSQLLoader(DatabaseLoader):
                 if metadata.get("expected_columns"):
                     checks.append(ValidationCheck("expected_columns", "FAIL", metadata["expected_columns"], {}, "database does not exist"))
                 checks.append(ValidationCheck("row_count", "FAIL", expected_tables, {}, "database does not exist"))
+                if metadata.get("statistics_maintenance_policy") is not None:
+                    checks.append(ValidationCheck("statistics_maintenance_policy", "FAIL", True, None, "database does not exist"))
         if version is not None:
             metadata["postgres_version"] = version
         status = "PASS" if all(check.status == "PASS" for check in checks) else "FAIL"
